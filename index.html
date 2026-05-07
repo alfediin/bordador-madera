@@ -532,6 +532,31 @@
       return cardinal.every(([px, py]) => ctx.isPointInPath(path2d, px, py));
     }
 
+    // Debug: draw the scaled silhouette used for filtering on top of the canvas
+    function drawFilterSilhouette(ctx, svgText, factor, origVB, canvasScale, viewBoxX, viewBoxY) {
+      const path2d = getSilhouettePath(svgText);
+      if (!path2d) return;
+
+      const newW = origVB[2] * factor;
+      const newH = origVB[3] * factor;
+      const newX = origVB[0] - (newW - origVB[2]) / 2;
+      const newY = origVB[1] - (newH - origVB[3]) / 2;
+      const tx = newX - origVB[0] * factor;
+      const ty = newY - origVB[1] * factor;
+
+      ctx.save();
+      ctx.scale(canvasScale, canvasScale);
+      ctx.translate(-viewBoxX, -viewBoxY);
+      ctx.translate(tx, ty);
+      ctx.scale(factor, factor);
+
+      ctx.strokeStyle = 'rgba(0, 200, 0, 0.6)';
+      ctx.lineWidth = 1.5 / factor;
+      ctx.stroke(path2d);
+
+      ctx.restore();
+    }
+
     function scaleShape(shape, factor) {
       if (factor <= 1.0001) return shape;
 
@@ -621,7 +646,12 @@
       svg.setAttribute('width', viewBox[2] + 'pt');
       svg.setAttribute('height', viewBox[3] + 'pt');
       const finalText = new XMLSerializer().serializeToString(doc);
-      return parseHoles(finalText);
+      const result = parseHoles(finalText);
+      // Preserve scaling metadata for debug rendering
+      result.scaleFactor = factor;
+      result.origViewBox = origVB;
+      result.holeRadius = shape.holeRadius;
+      return result;
     }
 
     // ─── Quantize ───
@@ -953,6 +983,11 @@
           ctx.stroke();
         }
 
+        // Debug: draw the silhouette used for filtering
+        if (shape.scaleFactor && shape.origViewBox) {
+          drawFilterSilhouette(ctx, shape.svgText, shape.scaleFactor, shape.origViewBox, scale, vx, vy);
+        }
+
         card.querySelector(`#l-${name}`).classList.add('hidden');
         const footer = card.querySelector(`#f-${name}`);
         footer.classList.remove('hidden');
@@ -1174,6 +1209,8 @@
           const text = await res.text();
           const shape = parseHoles(text);
           const name = f.replace('.svg', '');
+          shape.scaleFactor = 1.0;
+          shape.origViewBox = shape.viewBox;
           originalShapes[name] = shape;
           shapeScales[name] = 1.0;
           shapes[name] = { shape, grid: buildGrid(shape) };
@@ -1185,6 +1222,8 @@
       if (!originalShapes[name]) return;
       shapeScales[name] = factor;
       const scaled = scaleShape(originalShapes[name], factor);
+      scaled.scaleFactor = factor;
+      scaled.origViewBox = originalShapes[name].viewBox;
       shapes[name] = { shape: scaled, grid: buildGrid(scaled) };
       // Reset state for this shape (preserve viewMode only, zoom will be auto-fitted on render)
       if (shapeStates[name]) {
