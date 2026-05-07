@@ -570,6 +570,10 @@
       const cx = origVB[0] + origVB[2] / 2;
       const cy = origVB[1] + origVB[3] / 2;
 
+      // Generate a finer grid in ORIGINAL space so the offset is preserved.
+      // Finer step = original step / factor
+      const fineDx = dx / factor;
+      const fineDy = dy / factor;
       const newCellCols = Math.round((grid.cols - 1) * factor);
       const newCellRows = Math.round((grid.rows - 1) * factor);
       const newCols = newCellCols + 1;
@@ -578,11 +582,34 @@
       const allHoles = [];
       for (let row = 0; row < newRows; row++) {
         for (let col = 0; col < newCols; col++) {
-          const x = cx + (col - (newCols - 1) / 2) * dx;
-          const y = cy + (row - (newRows - 1) / 2) * dy;
-          allHoles.push({ x, y, row, col });
+          // Position in original coordinate space (preserves original offset from silhouette)
+          const origX = cx + (col - (newCols - 1) / 2) * fineDx;
+          const origY = cy + (row - (newRows - 1) / 2) * fineDy;
+          allHoles.push({ origX, origY, row, col });
         }
       }
+
+      // Filter in original space: this automatically respects the original 3mm offset
+      // because the original silhouette already has that margin baked in.
+      const insideHoles = allHoles.filter(h => {
+        const path2d = getSilhouettePath(shape.svgText);
+        if (!path2d) return false;
+        const c = document.createElement('canvas');
+        c.width = 1; c.height = 1;
+        const ctx = c.getContext('2d');
+        // Check center + cardinal points for a safety margin equivalent to the hole radius
+        const r = shape.holeRadius;
+        const pts = [[h.origX, h.origY], [h.origX, h.origY - r], [h.origX, h.origY + r], [h.origX + r, h.origY], [h.origX - r, h.origY]];
+        return pts.every(([px, py]) => ctx.isPointInPath(path2d, px, py));
+      });
+
+      // Scale accepted points to expanded viewBox
+      const expandedHoles = insideHoles.map(h => ({
+        x: cx + (h.origX - cx) * factor,
+        y: cy + (h.origY - cy) * factor,
+        row: h.row,
+        col: h.col
+      }));
 
       const newW = origVB[2] * factor;
       const newH = origVB[3] * factor;
@@ -590,9 +617,7 @@
       const newY = origVB[1] - (newH - origVB[3]) / 2;
       const newViewBox = [newX, newY, newW, newH];
 
-      const insideHoles = allHoles.filter(h => isPointInSilhouette(shape.svgText, h.x, h.y, factor, origVB, shape.holeRadius));
-
-      return buildFinalSVG(origDoc, insideHoles, newViewBox, factor, origVB, shape);
+      return buildFinalSVG(origDoc, expandedHoles, newViewBox, factor, origVB, shape);
     }
 
     function buildFinalSVG(doc, holes, viewBox, factor, origVB, shape) {
