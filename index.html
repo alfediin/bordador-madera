@@ -765,7 +765,6 @@
       card.className = 'card';
       card.id = `card-${name}`;
       const scaleFactor = shapeScales[name] || 1.0;
-      const zoomVal = (shapeStates[name]?.zoom || 100);
       card.innerHTML = `
         <div class="card-header">
           <div class="header-row">
@@ -778,8 +777,8 @@
           <div class="header-row secondary">
             <span class="meta">${grid.cells.length} puntadas · ${grid.cols - 1}×${grid.rows - 1} · ${scaleFactor.toFixed(1)}×</span>
             <div class="card-zoom">
-              <input type="range" class="zoom-slider" data-name="${name}" min="50" max="300" value="${zoomVal}" title="Zoom visual">
-              <span>${zoomVal}%</span>
+              <input type="range" class="zoom-slider" data-name="${name}" min="50" max="300" value="100" title="Zoom visual">
+              <span>100%</span>
             </div>
           </div>
         </div>
@@ -803,31 +802,36 @@
 
       const canvas = card.querySelector('canvas');
       const ctx = canvas.getContext('2d');
-      const scale = 6;
+      const RENDER_SCALE = 6;
       const [vx, vy, vw, vh] = shape.viewBox;
-      const baseW = vw * scale;
-      const baseH = vh * scale;
-      canvas.width = baseW;
-      canvas.height = baseH;
 
-      // Auto-fit zoom so the full SVG fits inside the card canvas area (~440px wide)
-      const fitZoom = Math.min(100, Math.floor((440 / baseW) * 100));
-      const startZoom = zoomVal === 100 ? Math.max(50, fitZoom) : zoomVal;
+      // Render at fixed high scale for crisp zoom-in
+      canvas.width = vw * RENDER_SCALE;
+      canvas.height = vh * RENDER_SCALE;
+      const scale = RENDER_SCALE; // for coordinate math
 
-      // Apply zoom by resizing the CSS display size of the canvas
+      // Compute the CSS display size so that at "zoom 100%" the full SVG fits
+      // in the card canvas area without scrolling.
+      const maxDisplayW = 440;
+      const maxDisplayH = 480;
+      const fitFactor = Math.min(maxDisplayW / canvas.width, maxDisplayH / canvas.height);
+
+      // Apply zoom: 100% = fit to viewport, >100% = enlarge, <100% = shrink
       const applyZoom = (z) => {
-        canvas.style.width = (baseW * z / 100) + 'px';
-        canvas.style.height = (baseH * z / 100) + 'px';
+        const displayFactor = fitFactor * (z / 100);
+        canvas.style.width = (canvas.width * displayFactor) + 'px';
+        canvas.style.height = (canvas.height * displayFactor) + 'px';
         if (!shapeStates[name]) shapeStates[name] = {};
         shapeStates[name].zoom = z;
       };
-      applyZoom(startZoom);
+      // Always start at 100% so the full figure is visible
+      applyZoom(100);
 
-      // Sync slider to the actual start zoom
+      // Slider always shows 100% initially, lets user zoom in/out
       const zoomSlider = card.querySelector('.zoom-slider');
       const zoomLabel = zoomSlider?.nextElementSibling;
-      if (zoomSlider) zoomSlider.value = startZoom;
-      if (zoomLabel) zoomLabel.textContent = startZoom + '%';
+      if (zoomSlider) zoomSlider.value = 100;
+      if (zoomLabel) zoomLabel.textContent = '100%';
 
       zoomSlider?.addEventListener('input', (e) => {
         const z = parseInt(e.target.value, 10);
