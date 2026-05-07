@@ -483,6 +483,55 @@
     }
 
     // ─── Shape scaling (offset exterior) ───
+    function isPointInSilhouette(svgText, x, y, factor, origVB) {
+      const newW = origVB[2] * factor;
+      const newH = origVB[3] * factor;
+      const newX = origVB[0] - (newW - origVB[2]) / 2;
+      const newY = origVB[1] - (newH - origVB[3]) / 2;
+
+      // Use a canvas sized to the EXPANDED viewBox so the scaled silhouette
+      // is rendered at its true size.
+      const RES = 2;
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.ceil(newW * RES));
+      c.height = Math.max(1, Math.ceil(newH * RES));
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, c.width, c.height);
+
+      const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+      const paths = doc.querySelectorAll('path');
+
+      // Build the same transform used in buildFinalSVG so the silhouette
+      // aligns exactly with the expanded viewBox.
+      const tx = newX - origVB[0] * factor;
+      const ty = newY - origVB[1] * factor;
+      ctx.scale(RES, RES);
+      ctx.translate(tx, ty);
+      ctx.scale(factor, factor);
+
+      ctx.fillStyle = 'black';
+      ctx.strokeStyle = 'black';
+      ctx.lineWidth = 2 / factor; // thin stroke in original coords
+      paths.forEach(p => {
+        if (p.getAttribute('stroke') === '#FF0000') return;
+        const d = p.getAttribute('d');
+        if (!d) return;
+        try {
+          const path2d = new Path2D(d);
+          ctx.fill(path2d);
+          ctx.stroke(path2d);
+        } catch (err) {}
+      });
+
+      // Sample point in expanded canvas coordinates
+      const px = Math.round((x - newX) * RES);
+      const py = Math.round((y - newY) * RES);
+      if (px < 0 || px >= c.width || py < 0 || py >= c.height) return false;
+      const data = ctx.getImageData(px, py, 1, 1).data;
+      return data[0] < 128;
+    }
+
     function scaleShape(shape, factor) {
       if (factor <= 1.0001) return shape;
 
@@ -496,33 +545,17 @@
       const cx = origVB[0] + origVB[2] / 2;
       const cy = origVB[1] + origVB[3] / 2;
 
-      // Bounding box of original holes
-      const origMinX = Math.min(...shape.holes.map(h => h.x));
-      const origMaxX = Math.max(...shape.holes.map(h => h.x));
-      const origMinY = Math.min(...shape.holes.map(h => h.y));
-      const origMaxY = Math.max(...shape.holes.map(h => h.y));
-
-      // Expanded bounding box
-      const expMinX = cx - (cx - origMinX) * factor;
-      const expMaxX = cx + (origMaxX - cx) * factor;
-      const expMinY = cy - (cy - origMinY) * factor;
-      const expMaxY = cy + (origMaxY - cy) * factor;
-
       const newCellCols = Math.round((grid.cols - 1) * factor);
       const newCellRows = Math.round((grid.rows - 1) * factor);
       const newCols = newCellCols + 1;
       const newRows = newCellRows + 1;
 
-      // Generate candidate holes directly in EXPANDED viewBox coordinates.
-      // Keep only those inside the expanded bounding box of original holes.
       const allHoles = [];
       for (let row = 0; row < newRows; row++) {
         for (let col = 0; col < newCols; col++) {
           const x = cx + (col - (newCols - 1) / 2) * dx;
           const y = cy + (row - (newRows - 1) / 2) * dy;
-          if (x >= expMinX - dx/2 && x <= expMaxX + dx/2 && y >= expMinY - dy/2 && y <= expMaxY + dy/2) {
-            allHoles.push({ x, y, row, col });
-          }
+          allHoles.push({ x, y, row, col });
         }
       }
 
@@ -532,7 +565,9 @@
       const newY = origVB[1] - (newH - origVB[3]) / 2;
       const newViewBox = [newX, newY, newW, newH];
 
-      return buildFinalSVG(origDoc, allHoles, newViewBox, factor, origVB, shape);
+      const insideHoles = allHoles.filter(h => isPointInSilhouette(shape.svgText, h.x, h.y, factor, origVB));
+
+      return buildFinalSVG(origDoc, insideHoles, newViewBox, factor, origVB, shape);
     }
 
     function buildFinalSVG(doc, holes, viewBox, factor, origVB, shape) {
