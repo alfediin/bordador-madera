@@ -484,52 +484,34 @@
 
     // ─── Shape scaling (offset exterior) ───
     function isPointInSilhouette(svgText, x, y, factor, origVB) {
+      // Convert expanded-space point back to original coordinates.
+      // The scaled group transform is: translate(tx,ty) scale(factor)
       const newW = origVB[2] * factor;
       const newH = origVB[3] * factor;
       const newX = origVB[0] - (newW - origVB[2]) / 2;
       const newY = origVB[1] - (newH - origVB[3]) / 2;
-
-      // Use a canvas sized to the EXPANDED viewBox so the scaled silhouette
-      // is rendered at its true size.
-      const RES = 2;
-      const c = document.createElement('canvas');
-      c.width = Math.max(1, Math.ceil(newW * RES));
-      c.height = Math.max(1, Math.ceil(newH * RES));
-      const ctx = c.getContext('2d');
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, c.width, c.height);
-
-      const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
-      const paths = doc.querySelectorAll('path');
-
-      // Build the same transform used in buildFinalSVG so the silhouette
-      // aligns exactly with the expanded viewBox.
       const tx = newX - origVB[0] * factor;
       const ty = newY - origVB[1] * factor;
-      ctx.scale(RES, RES);
-      ctx.translate(tx, ty);
-      ctx.scale(factor, factor);
+      const origX = (x - tx) / factor;
+      const origY = (y - ty) / factor;
 
-      ctx.fillStyle = 'black';
-      ctx.strokeStyle = 'black';
-      ctx.lineWidth = 2 / factor; // thin stroke in original coords
+      // Build silhouette Path2D once per call (fast enough for our grid sizes)
+      const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+      const paths = doc.querySelectorAll('path');
+      let silhouetteD = '';
       paths.forEach(p => {
         if (p.getAttribute('stroke') === '#FF0000') return;
         const d = p.getAttribute('d');
-        if (!d) return;
-        try {
-          const path2d = new Path2D(d);
-          ctx.fill(path2d);
-          ctx.stroke(path2d);
-        } catch (err) {}
+        if (d) silhouetteD += d + ' ';
       });
+      if (!silhouetteD) return false;
 
-      // Sample point in expanded canvas coordinates
-      const px = Math.round((x - newX) * RES);
-      const py = Math.round((y - newY) * RES);
-      if (px < 0 || px >= c.width || py < 0 || py >= c.height) return false;
-      const data = ctx.getImageData(px, py, 1, 1).data;
-      return data[0] < 128;
+      const path2d = new Path2D(silhouetteD);
+      // isPointInPath works even on a 1×1 canvas; the path itself carries the geometry
+      const c = document.createElement('canvas');
+      c.width = 1; c.height = 1;
+      const ctx = c.getContext('2d');
+      return ctx.isPointInPath(path2d, origX, origY);
     }
 
     function scaleShape(shape, factor) {
