@@ -1147,9 +1147,9 @@
       shapeScales[name] = factor;
       const scaled = scaleShape(originalShapes[name], factor);
       shapes[name] = { shape: scaled, grid: buildGrid(scaled) };
-      // Reset state for this shape (preserve zoom & viewMode)
+      // Reset state for this shape (preserve viewMode only, zoom will be auto-fitted on render)
       if (shapeStates[name]) {
-        const saved = { zoom: shapeStates[name].zoom, viewMode: shapeStates[name].viewMode };
+        const saved = { viewMode: shapeStates[name].viewMode };
         shapeStates[name] = saved;
       }
     }
