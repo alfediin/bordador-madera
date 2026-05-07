@@ -483,9 +483,26 @@
     }
 
     // ─── Shape scaling (offset exterior) ───
-    function isPointInSilhouette(svgText, x, y, factor, origVB) {
+    // Pre-parse silhouette path once per shape to avoid re-parsing on every call
+    const silhouettePaths = new Map();
+    function getSilhouettePath(svgText) {
+      if (silhouettePaths.has(svgText)) return silhouettePaths.get(svgText);
+      const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+      const paths = doc.querySelectorAll('path');
+      let silhouetteD = '';
+      paths.forEach(p => {
+        if (p.getAttribute('stroke') === '#FF0000') return;
+        const d = p.getAttribute('d');
+        if (d) silhouetteD += d + ' ';
+      });
+      if (!silhouetteD) return null;
+      const path2d = new Path2D(silhouetteD);
+      silhouettePaths.set(svgText, path2d);
+      return path2d;
+    }
+
+    function isPointInSilhouette(svgText, x, y, factor, origVB, holeRadius) {
       // Convert expanded-space point back to original coordinates.
-      // The scaled group transform is: translate(tx,ty) scale(factor)
       const newW = origVB[2] * factor;
       const newH = origVB[3] * factor;
       const newX = origVB[0] - (newW - origVB[2]) / 2;
@@ -495,23 +512,24 @@
       const origX = (x - tx) / factor;
       const origY = (y - ty) / factor;
 
-      // Build silhouette Path2D once per call (fast enough for our grid sizes)
-      const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
-      const paths = doc.querySelectorAll('path');
-      let silhouetteD = '';
-      paths.forEach(p => {
-        if (p.getAttribute('stroke') === '#FF0000') return;
-        const d = p.getAttribute('d');
-        if (d) silhouetteD += d + ' ';
-      });
-      if (!silhouetteD) return false;
+      const path2d = getSilhouettePath(svgText);
+      if (!path2d) return false;
 
-      const path2d = new Path2D(silhouetteD);
-      // isPointInPath works even on a 1×1 canvas; the path itself carries the geometry
       const c = document.createElement('canvas');
       c.width = 1; c.height = 1;
       const ctx = c.getContext('2d');
-      return ctx.isPointInPath(path2d, origX, origY);
+
+      // Check center point
+      if (!ctx.isPointInPath(path2d, origX, origY)) return false;
+
+      // Virtual inner offset: ensure the full hole circle fits inside silhouette.
+      // Convert hole radius back to original coordinate scale.
+      const r = holeRadius / factor;
+      const cardinal = [
+        [origX, origY - r], [origX, origY + r],
+        [origX + r, origY], [origX - r, origY]
+      ];
+      return cardinal.every(([px, py]) => ctx.isPointInPath(path2d, px, py));
     }
 
     function scaleShape(shape, factor) {
@@ -547,7 +565,7 @@
       const newY = origVB[1] - (newH - origVB[3]) / 2;
       const newViewBox = [newX, newY, newW, newH];
 
-      const insideHoles = allHoles.filter(h => isPointInSilhouette(shape.svgText, h.x, h.y, factor, origVB));
+      const insideHoles = allHoles.filter(h => isPointInSilhouette(shape.svgText, h.x, h.y, factor, origVB, shape.holeRadius));
 
       return buildFinalSVG(origDoc, insideHoles, newViewBox, factor, origVB, shape);
     }
