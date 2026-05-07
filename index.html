@@ -131,11 +131,11 @@
     }
 
     .gallery {
-      max-width: 1200px;
+      max-width: 1400px;
       margin: 0 auto;
       padding: 0 20px 60px;
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
       gap: 20px;
     }
     .card {
@@ -149,13 +149,21 @@
     .card-header {
       padding: 14px 18px;
       display: flex;
+      flex-direction: column;
+      gap: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .header-row {
+      display: flex;
       align-items: center;
       justify-content: space-between;
-      border-bottom: 1px solid var(--border);
       gap: 12px;
     }
-    .card-header h3 { font-size: 1rem; font-weight: 600; flex: 1; }
-    .card-header .meta { font-size: 0.75rem; color: var(--muted); }
+    .header-row.secondary {
+      flex-wrap: wrap;
+    }
+    .card-header h3 { font-size: 1rem; font-weight: 600; }
+    .card-header .meta { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
     .view-toggle {
       display: flex;
       border: 1px solid var(--border);
@@ -179,18 +187,19 @@
       position: relative;
       background: #f0ebe4;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: center;
       padding: 16px;
-      min-height: 320px;
+      min-height: 360px;
+      max-height: 520px;
       overflow: auto;
     }
-    .canvas-wrapper {
-      position: relative;
-      transform-origin: top left;
-      transition: transform .15s ease-out;
+    .card-canvas canvas {
+      display: block;
+      border-radius: 8px;
+      cursor: crosshair;
+      transition: width .15s ease-out, height .15s ease-out;
     }
-    .card-canvas canvas { display: block; border-radius: 8px; cursor: crosshair; }
     .card-zoom {
       display: flex;
       align-items: center;
@@ -759,21 +768,23 @@
       const zoomVal = (shapeStates[name]?.zoom || 100);
       card.innerHTML = `
         <div class="card-header">
-          <h3>${name}</h3>
-          <span class="meta">${grid.cells.length} puntadas · ${grid.cols - 1}×${grid.rows - 1} · ${scaleFactor.toFixed(1)}×</span>
-          <div class="card-zoom">
-            <input type="range" class="zoom-slider" data-name="${name}" min="50" max="300" value="${zoomVal}" title="Zoom visual">
-            <span>${zoomVal}%</span>
+          <div class="header-row">
+            <h3>${name}</h3>
+            <div class="view-toggle">
+              <button class="${viewMode === 'result' ? 'active' : ''}" data-view="result" data-name="${name}">Bordado</button>
+              <button class="${viewMode === 'pattern' ? 'active' : ''}" data-view="pattern" data-name="${name}">Patrón</button>
+            </div>
           </div>
-          <div class="view-toggle">
-            <button class="${viewMode === 'result' ? 'active' : ''}" data-view="result" data-name="${name}">Bordado</button>
-            <button class="${viewMode === 'pattern' ? 'active' : ''}" data-view="pattern" data-name="${name}">Patrón</button>
+          <div class="header-row secondary">
+            <span class="meta">${grid.cells.length} puntadas · ${grid.cols - 1}×${grid.rows - 1} · ${scaleFactor.toFixed(1)}×</span>
+            <div class="card-zoom">
+              <input type="range" class="zoom-slider" data-name="${name}" min="50" max="300" value="${zoomVal}" title="Zoom visual">
+              <span>${zoomVal}%</span>
+            </div>
           </div>
         </div>
         <div class="card-canvas">
-          <div class="canvas-wrapper" id="w-${name}">
-            <canvas id="c-${name}"></canvas>
-          </div>
+          <canvas id="c-${name}"></canvas>
           <span class="edit-hint">Clic en punto para editar</span>
         </div>
         <div class="card-footer" id="f-${name}"></div>
@@ -791,24 +802,33 @@
       }
 
       const canvas = card.querySelector('canvas');
-      const wrapper = card.querySelector('.canvas-wrapper');
       const ctx = canvas.getContext('2d');
-      const scale = 5;
+      const scale = 6;
       const [vx, vy, vw, vh] = shape.viewBox;
-      canvas.width = vw * scale;
-      canvas.height = vh * scale;
+      const baseW = vw * scale;
+      const baseH = vh * scale;
+      canvas.width = baseW;
+      canvas.height = baseH;
 
-      // Apply initial zoom
+      // Auto-fit zoom so the full SVG fits inside the card canvas area (~440px wide)
+      const fitZoom = Math.min(100, Math.floor((440 / baseW) * 100));
+      const startZoom = zoomVal === 100 ? Math.max(50, fitZoom) : zoomVal;
+
+      // Apply zoom by resizing the CSS display size of the canvas
       const applyZoom = (z) => {
-        wrapper.style.transform = `scale(${z / 100})`;
+        canvas.style.width = (baseW * z / 100) + 'px';
+        canvas.style.height = (baseH * z / 100) + 'px';
         if (!shapeStates[name]) shapeStates[name] = {};
         shapeStates[name].zoom = z;
       };
-      applyZoom(zoomVal);
+      applyZoom(startZoom);
 
-      // Zoom slider listener
+      // Sync slider to the actual start zoom
       const zoomSlider = card.querySelector('.zoom-slider');
       const zoomLabel = zoomSlider?.nextElementSibling;
+      if (zoomSlider) zoomSlider.value = startZoom;
+      if (zoomLabel) zoomLabel.textContent = startZoom + '%';
+
       zoomSlider?.addEventListener('input', (e) => {
         const z = parseInt(e.target.value, 10);
         if (zoomLabel) zoomLabel.textContent = z + '%';
@@ -1071,8 +1091,8 @@
       const cvx = parseFloat(canvas.dataset.vx || 0);
       const cvy = parseFloat(canvas.dataset.vy || 0);
       const zoom = (shapeStates[name]?.zoom || 100) / 100;
-      const svgX = (e.clientX - rect.left) / zoom * (canvas.width / rect.width) / scale + cvx;
-      const svgY = (e.clientY - rect.top) / zoom * (canvas.height / rect.height) / scale + cvy;
+      const svgX = (e.clientX - rect.left) * (canvas.width / rect.width) / scale + cvx;
+      const svgY = (e.clientY - rect.top) * (canvas.height / rect.height) / scale + cvy;
 
       let bestIdx = -1, bestDist = Infinity;
       state.cellColors.forEach(({ cell }, i) => {
