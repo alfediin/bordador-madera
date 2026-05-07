@@ -1,0 +1,1278 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bordador — Punto Cruz en Madera</title>
+  <style>
+    :root {
+      --bg: #faf7f2;
+      --card: #ffffff;
+      --text: #3d3229;
+      --muted: #8c7e6e;
+      --accent: #c17f4e;
+      --border: #e6ddd1;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      text-align: center;
+      padding: 32px 20px 16px;
+    }
+    header h1 { font-size: 1.6rem; font-weight: 600; letter-spacing: -0.3px; }
+    header p { color: var(--muted); font-size: 0.9rem; margin-top: 6px; }
+
+    .upload-wrap {
+      max-width: 680px;
+      margin: 0 auto 20px;
+      padding: 0 20px;
+    }
+    .upload-box {
+      border: 2px dashed var(--border);
+      border-radius: 16px;
+      padding: 36px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .25s, background .25s;
+      background: var(--card);
+    }
+    .upload-box:hover { border-color: var(--accent); background: #fffbf7; }
+    .upload-box.dragover { border-color: var(--accent); background: #fff5eb; }
+    .upload-box input { display: none; }
+    .upload-box svg { width: 40px; height: 40px; stroke: var(--muted); }
+    .upload-box p { margin-top: 10px; color: var(--muted); font-size: 0.9rem; }
+
+    .crop-section {
+      max-width: 680px;
+      margin: 0 auto 24px;
+      padding: 0 20px;
+      display: none;
+    }
+    .crop-section.visible { display: block; }
+    .crop-label {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 8px;
+      text-align: center;
+    }
+    .crop-container {
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+      background: #111;
+      width: 100%;
+      max-width: 420px;
+      margin: 0 auto;
+      display: block;
+      aspect-ratio: 1 / 1;
+    }
+    .crop-container canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+    .crop-container canvas:active { cursor: grabbing; }
+    .crop-hint {
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-align: center;
+      margin-top: 8px;
+    }
+
+    .toolbar {
+      max-width: 1200px;
+      margin: 0 auto 16px;
+      padding: 0 20px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .toolbar label { font-size: 0.8rem; color: var(--muted); }
+    .thread-opts {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .thread-btn {
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .thread-btn:hover { border-color: var(--accent); }
+    .thread-btn.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .scale-opts {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding-left: 12px;
+      border-left: 1px solid var(--border);
+    }
+    .scale-opts label {
+      font-size: 0.8rem;
+      color: var(--muted);
+      min-width: 80px;
+      white-space: nowrap;
+    }
+    .scale-opts input[type=range] {
+      width: 120px;
+    }
+
+    .gallery {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 20px 60px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 20px;
+    }
+    .card {
+      background: var(--card);
+      border-radius: 16px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+      overflow: hidden;
+      transition: transform .2s, box-shadow .2s;
+    }
+    .card:hover { transform: translateY(-3px); box-shadow: 0 8px 28px rgba(0,0,0,0.08); }
+    .card-header {
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      gap: 12px;
+    }
+    .card-header h3 { font-size: 1rem; font-weight: 600; flex: 1; }
+    .card-header .meta { font-size: 0.75rem; color: var(--muted); }
+    .view-toggle {
+      display: flex;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      font-size: 0.75rem;
+    }
+    .view-toggle button {
+      border: none;
+      background: #fff;
+      color: var(--muted);
+      padding: 5px 10px;
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .view-toggle button.active {
+      background: var(--accent);
+      color: #fff;
+    }
+    .card-canvas {
+      position: relative;
+      background: #f0ebe4;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      min-height: 320px;
+      overflow: auto;
+    }
+    .canvas-wrapper {
+      position: relative;
+      transform-origin: top left;
+      transition: transform .15s ease-out;
+    }
+    .card-canvas canvas { display: block; border-radius: 8px; cursor: crosshair; }
+    .card-zoom {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.7rem;
+      color: var(--muted);
+    }
+    .card-zoom input[type=range] {
+      width: 60px;
+    }
+    .edit-hint {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      font-size: 0.7rem;
+      color: var(--muted);
+      background: rgba(255,255,255,0.85);
+      padding: 3px 8px;
+      border-radius: 6px;
+      pointer-events: none;
+    }
+    .card-footer {
+      padding: 12px 18px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .card-actions {
+      padding: 0 18px 14px;
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .action-btn {
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--muted);
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .action-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .chip {
+      font-size: 0.7rem;
+      padding: 5px 12px;
+      border-radius: 999px;
+      background: var(--bg);
+      color: var(--muted);
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: transform .15s, box-shadow .15s;
+      user-select: none;
+    }
+    .chip:hover { transform: scale(1.08); box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+    .chip .dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+      border: 1px solid rgba(0,0,0,0.15);
+    }
+    .pattern-legend {
+      padding: 0 18px 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-size: 0.78rem;
+    }
+    .pattern-legend .leg-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      background: var(--bg);
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+    .pattern-legend .leg-sym {
+      font-weight: 700;
+      font-size: 0.9rem;
+      width: 18px;
+      text-align: center;
+    }
+    .pattern-legend .leg-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      border: 1px solid rgba(0,0,0,0.15);
+    }
+
+    .color-popover {
+      position: absolute;
+      z-index: 1000;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+      display: none;
+      min-width: 180px;
+    }
+    .color-popover.visible { display: block; }
+    .color-popover-title {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-bottom: 8px;
+      text-align: center;
+    }
+    .color-popover-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: center;
+      margin-bottom: 8px;
+    }
+    .color-popover-swatch {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: transform .15s, box-shadow .15s;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+    .color-popover-swatch:hover {
+      transform: scale(1.15);
+      border-color: var(--accent);
+    }
+    .color-popover-custom {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+    }
+    .color-popover-custom input[type="color"] {
+      width: 32px;
+      height: 32px;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      padding: 0;
+      background: none;
+    }
+    .color-popover-custom label {
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .empty-state {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--muted);
+    }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Bordador de Madera</h1>
+    <p>Convierte tus imágenes en patrones de punto cruz para figuras de madera</p>
+  </header>
+
+  <div class="upload-wrap">
+    <div class="upload-box" id="uploadBox">
+      <input type="file" id="fileInput" accept="image/*">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+        <circle cx="8.5" cy="8.5" r="1.5"/>
+        <polyline points="21 15 16 10 5 21"/>
+      </svg>
+      <p>Haz clic o arrastra una imagen aquí</p>
+    </div>
+  </div>
+
+  <div class="crop-section" id="cropSection">
+    <p class="crop-label">Arrastra para mover la imagen · Rueda para zoom</p>
+    <div class="crop-container">
+      <canvas id="cropCanvas" width="420" height="420"></canvas>
+    </div>
+    <p class="crop-hint">El área visible (sin oscurecer) es lo que se bordará</p>
+  </div>
+
+  <div class="toolbar hidden" id="toolbar">
+    <label>Hilos:</label>
+    <div class="thread-opts" id="threadOpts">
+      <button class="thread-btn" data-n="4">4</button>
+      <button class="thread-btn" data-n="8">8</button>
+      <button class="thread-btn active" data-n="12">12</button>
+      <button class="thread-btn" data-n="16">16</button>
+      <button class="thread-btn" data-n="24">24</button>
+      <button class="thread-btn" data-n="32">32</button>
+    </div>
+    <div class="scale-opts">
+      <label>Escala: <span id="scaleVal">1.0</span>×</label>
+      <input type="range" id="scaleSlider" min="10" max="45" value="10" step="1" title="1.0× = tamaño original">
+      <button class="thread-btn" id="applyScaleAll">Aplicar a todas</button>
+    </div>
+  </div>
+
+  <div class="gallery" id="gallery">
+    <div class="empty-state" id="emptyState">
+      <p>Sube una imagen para ver cómo queda bordada en cada figura</p>
+    </div>
+  </div>
+
+  <div class="color-popover" id="colorPopover">
+    <div class="color-popover-title">Elegir color</div>
+    <div class="color-popover-grid" id="popoverGrid"></div>
+    <div class="color-popover-custom">
+      <input type="color" id="popoverColorInput" value="#000000">
+      <label for="popoverColorInput">Color personalizado</label>
+    </div>
+  </div>
+
+  <script>
+    // ─── SVG parsing ───
+    function parseHoles(svgText) {
+      const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+      const svg = doc.querySelector('svg');
+      const vb = svg.getAttribute('viewBox').split(/\s+/).map(Number);
+      const paths = svg.querySelectorAll('path[stroke="#FF0000"]');
+      const holes = [];
+      let totalR = 0;
+      paths.forEach(p => {
+        const d = p.getAttribute('d');
+        const nums = [...d.matchAll(/[\d.]+/g)].map(m => parseFloat(m[0]));
+        const xs = nums.filter((_, i) => i % 2 === 0);
+        const ys = nums.filter((_, i) => i % 2 === 1);
+        const x = (Math.min(...xs) + Math.max(...xs)) / 2;
+        const y = (Math.min(...ys) + Math.max(...ys)) / 2;
+        const rx = (Math.max(...xs) - Math.min(...xs)) / 2;
+        const ry = (Math.max(...ys) - Math.min(...ys)) / 2;
+        const r = (rx + ry) / 2;
+        totalR += r;
+        holes.push({ x, y, r });
+      });
+      const holeRadius = paths.length > 0 ? totalR / paths.length : 1.8;
+      return { holes, viewBox: vb, svgText, doc, svg, holeRadius };
+    }
+
+    function buildGrid(shape) {
+      const { holes } = shape;
+      const tol = 2.5;
+      const uniq = (arr) => arr.filter((v, i, a) => a.findIndex(u => Math.abs(u - v) < tol) === i).sort((a, b) => a - b);
+      const xs = uniq(holes.map(h => h.x));
+      const ys = uniq(holes.map(h => h.y));
+
+      const occupied = Array.from({ length: ys.length }, () => Array(xs.length).fill(false));
+      holes.forEach(h => {
+        const ix = xs.findIndex(x => Math.abs(x - h.x) < tol);
+        const iy = ys.findIndex(y => Math.abs(y - h.y) < tol);
+        if (ix >= 0 && iy >= 0) occupied[iy][ix] = true;
+      });
+
+      const cells = [];
+      for (let y = 0; y < ys.length - 1; y++) {
+        for (let x = 0; x < xs.length - 1; x++) {
+          if (occupied[y][x] && occupied[y][x + 1] && occupied[y + 1][x] && occupied[y + 1][x + 1]) {
+            cells.push({
+              x, y,
+              ax: xs[x], ay: ys[y],
+              bx: xs[x + 1], by: ys[y],
+              cx: xs[x], cy: ys[y + 1],
+              dx: xs[x + 1], dy: ys[y + 1],
+              cxScreen: (xs[x] + xs[x + 1]) / 2,
+              cyScreen: (ys[y] + ys[y + 1]) / 2
+            });
+          }
+        }
+      }
+      return { xs, ys, occupied, cells, rows: ys.length, cols: xs.length };
+    }
+
+    // ─── Shape scaling (offset exterior) ───
+    function scaleShape(shape, factor) {
+      if (factor <= 1.0001) return shape;
+
+      const grid = buildGrid(shape);
+      const dx = grid.xs[1] - grid.xs[0];
+      const dy = grid.ys[1] - grid.ys[0];
+
+      const origDoc = new DOMParser().parseFromString(shape.svgText, 'image/svg+xml');
+      const origSvg = origDoc.querySelector('svg');
+      const origVB = origSvg.getAttribute('viewBox').split(/\s+/).map(Number);
+      const cx = origVB[0] + origVB[2] / 2;
+      const cy = origVB[1] + origVB[3] / 2;
+
+      // Bounding box of original holes
+      const origMinX = Math.min(...shape.holes.map(h => h.x));
+      const origMaxX = Math.max(...shape.holes.map(h => h.x));
+      const origMinY = Math.min(...shape.holes.map(h => h.y));
+      const origMaxY = Math.max(...shape.holes.map(h => h.y));
+
+      // Expanded bounding box
+      const expMinX = cx - (cx - origMinX) * factor;
+      const expMaxX = cx + (origMaxX - cx) * factor;
+      const expMinY = cy - (cy - origMinY) * factor;
+      const expMaxY = cy + (origMaxY - cy) * factor;
+
+      const newCellCols = Math.round((grid.cols - 1) * factor);
+      const newCellRows = Math.round((grid.rows - 1) * factor);
+      const newCols = newCellCols + 1;
+      const newRows = newCellRows + 1;
+
+      // Generate candidate holes directly in EXPANDED viewBox coordinates.
+      // Keep only those inside the expanded bounding box of original holes.
+      const allHoles = [];
+      for (let row = 0; row < newRows; row++) {
+        for (let col = 0; col < newCols; col++) {
+          const x = cx + (col - (newCols - 1) / 2) * dx;
+          const y = cy + (row - (newRows - 1) / 2) * dy;
+          if (x >= expMinX - dx/2 && x <= expMaxX + dx/2 && y >= expMinY - dy/2 && y <= expMaxY + dy/2) {
+            allHoles.push({ x, y, row, col });
+          }
+        }
+      }
+
+      const newW = origVB[2] * factor;
+      const newH = origVB[3] * factor;
+      const newX = origVB[0] - (newW - origVB[2]) / 2;
+      const newY = origVB[1] - (newH - origVB[3]) / 2;
+      const newViewBox = [newX, newY, newW, newH];
+
+      return buildFinalSVG(origDoc, allHoles, newViewBox, factor, origVB, shape);
+    }
+
+    function buildFinalSVG(doc, holes, viewBox, factor, origVB, shape) {
+      const svg = doc.querySelector('svg');
+      const ns = 'http://www.w3.org/2000/svg';
+
+      // Calculate translate for scaling about the viewBox center
+      const newW = origVB[2] * factor;
+      const newH = origVB[3] * factor;
+      const newX = origVB[0] - (newW - origVB[2]) / 2;
+      const newY = origVB[1] - (newH - origVB[3]) / 2;
+      const tx = newX - origVB[0] * factor;
+      const ty = newY - origVB[1] * factor;
+
+      // Remove existing red hole paths
+      const redPaths = svg.querySelectorAll('path[stroke="#FF0000"]');
+      redPaths.forEach(p => p.remove());
+
+      // Find or create the scaled group for the silhouette
+      let g = svg.querySelector('g[transform*="scale"]');
+      if (!g) {
+        g = document.createElementNS(ns, 'g');
+        svg.appendChild(g);
+      }
+      g.setAttribute('transform', `translate(${tx}, ${ty}) scale(${factor})`);
+
+      // Move all non-red paths that are still direct children of <svg> into the group
+      const directPaths = svg.querySelectorAll(':scope > path');
+      directPaths.forEach(p => {
+        if (p.getAttribute('stroke') === '#FF0000') return;
+        g.appendChild(p);
+      });
+
+      // Add new hole paths as DIRECT children with EXPANDED coordinates.
+      // This ensures parseHoles() reads them back in the same coordinate
+      // system as the expanded viewBox.
+      // Use the original hole radius so new holes match the original size.
+      const holeR = (shape && shape.holeRadius) ? shape.holeRadius : 1.8;
+      holes.forEach(h => {
+        const r = holeR;
+        const path = document.createElementNS(ns, 'path');
+        const d = `M${h.x-r},${h.y} C${h.x-r},${h.y-r*0.55} ${h.x-r*0.55},${h.y-r} ${h.x},${h.y-r} C${h.x+r*0.55},${h.y-r} ${h.x+r},${h.y-r*0.55} ${h.x+r},${h.y} C${h.x+r},${h.y+r*0.55} ${h.x+r*0.55},${h.y+r} ${h.x},${h.y+r} C${h.x-r*0.55},${h.y+r} ${h.x-r},${h.y+r*0.55} ${h.x-r},${h.y} z`;
+        path.setAttribute('d', d);
+        path.setAttribute('stroke', '#FF0000');
+        path.setAttribute('stroke-width', '0.24');
+        path.setAttribute('fill-opacity', '0');
+        svg.appendChild(path);
+      });
+
+      svg.setAttribute('viewBox', viewBox.join(' '));
+      svg.setAttribute('width', viewBox[2] + 'pt');
+      svg.setAttribute('height', viewBox[3] + 'pt');
+      const finalText = new XMLSerializer().serializeToString(doc);
+      return parseHoles(finalText);
+    }
+
+    // ─── Quantize ───
+    function makeQuant(imageData, n) {
+      const data = imageData.data;
+      const buckets = new Map();
+      for (let i = 0; i < data.length; i += 4) {
+        const r = Math.round(data[i] / 16) * 16;
+        const g = Math.round(data[i + 1] / 16) * 16;
+        const b = Math.round(data[i + 2] / 16) * 16;
+        const k = `${r},${g},${b}`;
+        buckets.set(k, (buckets.get(k) || 0) + 1);
+      }
+      let palette = [...buckets.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([k]) => k.split(',').map(Number));
+      while (palette.length < n && palette.length > 0) palette.push([...palette[palette.length - 1]]);
+
+      function rebuildMap() {
+        const map = new Map();
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i], g = data[i + 1], b = data[i + 2];
+          const key = `${r},${g},${b}`;
+          if (map.has(key)) continue;
+          let best = palette[0], bestD = 1e9;
+          for (const [pr, pg, pb] of palette) {
+            const d = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2;
+            if (d < bestD) { bestD = d; best = [pr, pg, pb]; }
+          }
+          map.set(key, best);
+        }
+        return map;
+      }
+      return { palette, rebuildMap, get map() { return rebuildMap(); } };
+    }
+
+    // ─── Symbols ───
+    const SYMBOLS = ['X','O','+','#','*','=','@','&','%','$','!','?','~','^','V','>','<','□','△','○','◇','☆','♦','♠','♣','♥','▲','▼','◆','●','■','▪'];
+    function assignSymbols(colors) {
+      const map = {};
+      colors.forEach((c, i) => { map[c] = SYMBOLS[i % SYMBOLS.length]; });
+      return map;
+    }
+    function contrastColor(rgb) {
+      const [r, g, b] = rgb;
+      const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      return luma > 0.55 ? '#2a221a' : '#ffffff';
+    }
+
+    // ─── Fixed-viewport crop: image moves & zooms ───
+    let sourceImg = null;
+    const cropCanvas = document.getElementById('cropCanvas');
+    const cCtx = cropCanvas.getContext('2d');
+    const CANVAS_SIZE = 420;
+    let panX = 0, panY = 0, zoomScale = 1;
+    let isDragging = false, dragStart = { x: 0, y: 0 }, panStart = { x: 0, y: 0 };
+
+    function resetCrop() { panX = 0; panY = 0; zoomScale = 1; }
+    function initCrop() { resetCrop(); drawCrop(); }
+
+    function drawCrop() {
+      cCtx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+      if (!sourceImg) return;
+      const cover = Math.max(CANVAS_SIZE / sourceImg.width, CANVAS_SIZE / sourceImg.height);
+      const baseW = sourceImg.width * cover;
+      const baseH = sourceImg.height * cover;
+      const drawW = baseW * zoomScale;
+      const drawH = baseH * zoomScale;
+      const drawX = (CANVAS_SIZE - drawW) / 2 + panX;
+      const drawY = (CANVAS_SIZE - drawH) / 2 + panY;
+      cCtx.drawImage(sourceImg, drawX, drawY, drawW, drawH);
+
+      const vpSize = CANVAS_SIZE * 0.75;
+      const vpX = (CANVAS_SIZE - vpSize) / 2;
+      const vpY = (CANVAS_SIZE - vpSize) / 2;
+      cCtx.fillStyle = 'rgba(0,0,0,0.55)';
+      cCtx.fillRect(0, 0, CANVAS_SIZE, vpY);
+      cCtx.fillRect(0, vpY + vpSize, CANVAS_SIZE, CANVAS_SIZE - (vpY + vpSize));
+      cCtx.fillRect(0, vpY, vpX, vpSize);
+      cCtx.fillRect(vpX + vpSize, vpY, CANVAS_SIZE - (vpX + vpSize), vpSize);
+
+      cCtx.strokeStyle = '#ff4444';
+      cCtx.lineWidth = 2;
+      cCtx.strokeRect(vpX, vpY, vpSize, vpSize);
+      const s = 6;
+      [[0,0],[vpSize,0],[0,vpSize],[vpSize,vpSize]].forEach(([dx, dy]) => {
+        cCtx.fillRect(vpX + dx - s/2, vpY + dy - s/2, s, s);
+      });
+    }
+
+    function clampEdge(imageData) {
+      const w = imageData.width, h = imageData.height;
+      const d = imageData.data;
+      // Find bounds of non-transparent pixels
+      let minX = w, maxX = -1, minY = h, maxY = -1;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const a = d[(y * w + x) * 4 + 3];
+          if (a > 0) {
+            if (x < minX) minX = x; if (x > maxX) maxX = x;
+            if (y < minY) minY = y; if (y > maxY) maxY = y;
+          }
+        }
+      }
+      if (maxX === -1) return imageData; // all transparent
+      // Fill transparent pixels with nearest edge pixel
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const idx = (y * w + x) * 4;
+          if (d[idx + 3] === 0) {
+            const sx = Math.max(minX, Math.min(x, maxX));
+            const sy = Math.max(minY, Math.min(y, maxY));
+            const sIdx = (sy * w + sx) * 4;
+            d[idx] = d[sIdx]; d[idx+1] = d[sIdx+1]; d[idx+2] = d[sIdx+2]; d[idx+3] = 255;
+          }
+        }
+      }
+      return imageData;
+    }
+
+    function getCropImageData(targetW, targetH) {
+      if (!sourceImg) return null;
+      const cover = Math.max(CANVAS_SIZE / sourceImg.width, CANVAS_SIZE / sourceImg.height);
+      const baseW = sourceImg.width * cover;
+      const baseH = sourceImg.height * cover;
+      const drawW = baseW * zoomScale;
+      const drawH = baseH * zoomScale;
+      const drawX = (CANVAS_SIZE - drawW) / 2 + panX;
+      const drawY = (CANVAS_SIZE - drawH) / 2 + panY;
+      const vpSize = CANVAS_SIZE * 0.75;
+      const vpX = (CANVAS_SIZE - vpSize) / 2;
+      const vpY = (CANVAS_SIZE - vpSize) / 2;
+      const srcX = (-drawX + vpX) / drawW * sourceImg.width;
+      const srcY = (-drawY + vpY) / drawH * sourceImg.height;
+      const srcW = vpSize / drawW * sourceImg.width;
+      const srcH = vpSize / drawH * sourceImg.height;
+      const c = document.createElement('canvas');
+      c.width = targetW; c.height = targetH;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(sourceImg, srcX, srcY, srcW, srcH, 0, 0, targetW, targetH);
+      const imgData = ctx.getImageData(0, 0, targetW, targetH);
+      return clampEdge(imgData);
+    }
+
+    cropCanvas.addEventListener('mousedown', e => {
+      const r = cropCanvas.getBoundingClientRect();
+      const factor = CANVAS_SIZE / r.width;
+      dragStart = { x: e.clientX * factor, y: e.clientY * factor };
+      panStart = { x: panX, y: panY };
+      isDragging = true;
+    });
+    window.addEventListener('mousemove', e => {
+      if (!isDragging) return;
+      const r = cropCanvas.getBoundingClientRect();
+      const factor = CANVAS_SIZE / r.width;
+      panX = panStart.x + (e.clientX * factor - dragStart.x);
+      panY = panStart.y + (e.clientY * factor - dragStart.y);
+      drawCrop();
+    });
+    window.addEventListener('mouseup', () => {
+      if (isDragging) { isDragging = false; recalcAndRender(); }
+    });
+    cropCanvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      zoomScale = Math.max(0.5, Math.min(zoomScale * factor, 5));
+      drawCrop();
+      recalcAndRender();
+    }, { passive: false });
+
+    // ─── Shape state for per-cell editing ───
+    const shapeStates = {}; // name -> { cellColors, quant, viewMode, grid, shape }
+
+    async function renderShapeCard(container, name, shape, grid, imageData, quant, viewMode = 'result') {
+      const existing = document.getElementById(`card-${name}`);
+
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.id = `card-${name}`;
+      const scaleFactor = shapeScales[name] || 1.0;
+      const zoomVal = (shapeStates[name]?.zoom || 100);
+      card.innerHTML = `
+        <div class="card-header">
+          <h3>${name}</h3>
+          <span class="meta">${grid.cells.length} puntadas · ${grid.cols - 1}×${grid.rows - 1} · ${scaleFactor.toFixed(1)}×</span>
+          <div class="card-zoom">
+            <input type="range" class="zoom-slider" data-name="${name}" min="50" max="300" value="${zoomVal}" title="Zoom visual">
+            <span>${zoomVal}%</span>
+          </div>
+          <div class="view-toggle">
+            <button class="${viewMode === 'result' ? 'active' : ''}" data-view="result" data-name="${name}">Bordado</button>
+            <button class="${viewMode === 'pattern' ? 'active' : ''}" data-view="pattern" data-name="${name}">Patrón</button>
+          </div>
+        </div>
+        <div class="card-canvas">
+          <div class="canvas-wrapper" id="w-${name}">
+            <canvas id="c-${name}"></canvas>
+          </div>
+          <span class="edit-hint">Clic en punto para editar</span>
+        </div>
+        <div class="card-footer" id="f-${name}"></div>
+        <div class="pattern-legend hidden" id="l-${name}"></div>
+        <div class="card-actions">
+          <button class="action-btn" data-action="svg" data-name="${name}">Exportar SVG</button>
+          <button class="action-btn" data-action="png" data-name="${name}">Guardar imagen</button>
+        </div>
+      `;
+
+      if (existing) {
+        existing.replaceWith(card);
+      } else {
+        container.appendChild(card);
+      }
+
+      const canvas = card.querySelector('canvas');
+      const wrapper = card.querySelector('.canvas-wrapper');
+      const ctx = canvas.getContext('2d');
+      const scale = 5;
+      const [vx, vy, vw, vh] = shape.viewBox;
+      canvas.width = vw * scale;
+      canvas.height = vh * scale;
+
+      // Apply initial zoom
+      const applyZoom = (z) => {
+        wrapper.style.transform = `scale(${z / 100})`;
+        if (!shapeStates[name]) shapeStates[name] = {};
+        shapeStates[name].zoom = z;
+      };
+      applyZoom(zoomVal);
+
+      // Zoom slider listener
+      const zoomSlider = card.querySelector('.zoom-slider');
+      const zoomLabel = zoomSlider?.nextElementSibling;
+      zoomSlider?.addEventListener('input', (e) => {
+        const z = parseInt(e.target.value, 10);
+        if (zoomLabel) zoomLabel.textContent = z + '%';
+        applyZoom(z);
+      });
+
+      const imgW = imageData.width;
+      const imgH = imageData.height;
+      const minX = Math.min(...shape.holes.map(h => h.x));
+      const maxX = Math.max(...shape.holes.map(h => h.x));
+      const minY = Math.min(...shape.holes.map(h => h.y));
+      const maxY = Math.max(...shape.holes.map(h => h.y));
+      const mapX = (sx) => ((sx - minX) / (maxX - minX)) * (imgW - 1);
+      const mapY = (sy) => ((sy - minY) / (maxY - minY)) * (imgH - 1);
+
+      const map = quant.rebuildMap();
+      let cellColors = [];
+      const paletteSet = new Set();
+      const colorUses = new Map();
+
+      // Use existing state if available (for re-renders after edit)
+      if (shapeStates[name] && shapeStates[name].cellColors) {
+        cellColors = shapeStates[name].cellColors;
+        cellColors.forEach(cc => {
+          cc.rgb = cc.rgb.map(v => Number(v));
+          paletteSet.add(cc.key);
+          colorUses.set(cc.key, (colorUses.get(cc.key) || 0) + 1);
+        });
+      } else {
+        for (const cell of grid.cells) {
+          const px = Math.floor(mapX(cell.cxScreen));
+          const py = Math.floor(mapY(cell.cyScreen));
+          const idx = (Math.max(0, Math.min(py, imgH - 1)) * imgW + Math.max(0, Math.min(px, imgW - 1))) * 4;
+          const r = imageData.data[idx];
+          const g = imageData.data[idx + 1];
+          const b = imageData.data[idx + 2];
+          const mapped = map.get(`${r},${g},${b}`) || [r, g, b];
+          const rgb = mapped.map(v => Number(v));
+          const key = `${rgb[0]},${rgb[1]},${rgb[2]}`;
+          paletteSet.add(key);
+          colorUses.set(key, (colorUses.get(key) || 0) + 1);
+          cellColors.push({ cell, key, rgb });
+        }
+        const prevZoom = shapeStates[name]?.zoom;
+        shapeStates[name] = { cellColors, quant, grid, shape, viewMode };
+        if (prevZoom) shapeStates[name].zoom = prevZoom;
+      }
+
+      const sortedColors = [...paletteSet].sort((a, b) => (colorUses.get(b) || 0) - (colorUses.get(a) || 0));
+      const symMap = assignSymbols(sortedColors);
+
+      // Save click handler data on canvas
+      canvas.dataset.name = name;
+      canvas.dataset.scale = scale;
+      canvas.dataset.vx = vx;
+      canvas.dataset.vy = vy;
+
+      if (viewMode === 'result') {
+        const blob = new Blob([shape.svgText], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(blob);
+        const bgImg = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+        ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+
+        const cellSize = ((grid.xs[1] - grid.xs[0]) || 6.5) * scale;
+        const threadW = Math.max(1.4, cellSize * 0.32);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        for (const { cell, rgb } of cellColors) {
+          const color = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+          const margin = cellSize * 0.12;
+          const ax = (cell.ax - vx) * scale + margin, ay = (cell.ay - vy) * scale + margin;
+          const bx = (cell.bx - vx) * scale - margin, by = (cell.by - vy) * scale + margin;
+          const cx = (cell.cx - vx) * scale + margin, cy = (cell.cy - vy) * scale - margin;
+          const dx = (cell.dx - vx) * scale - margin, dy = (cell.dy - vy) * scale - margin;
+
+          ctx.strokeStyle = color;
+          ctx.lineWidth = threadW;
+          ctx.beginPath();
+          ctx.moveTo(ax, ay); ctx.lineTo(dx, dy);
+          ctx.moveTo(bx, by); ctx.lineTo(cx, cy);
+          ctx.stroke();
+        }
+
+        card.querySelector(`#l-${name}`).classList.add('hidden');
+        const footer = card.querySelector(`#f-${name}`);
+        footer.classList.remove('hidden');
+        footer.innerHTML = '';
+        sortedColors.slice(0, 16).forEach(key => {
+          const [r, g, b] = key.split(',').map(Number);
+          const rgbStr = `rgb(${r},${g},${b})`;
+          const chip = document.createElement('span');
+          chip.className = 'chip';
+          chip.dataset.rgb = key;
+          chip.innerHTML = `<span class="dot" style="background:${rgbStr}"></span>${colorUses.get(key) || 0}`;
+          chip.addEventListener('click', () => openColorPicker(chip, key));
+          footer.appendChild(chip);
+        });
+      } else {
+        const cellSize = ((grid.xs[1] - grid.xs[0]) || 6.5) * scale;
+        const pad = cellSize * 0.1;
+
+        for (const { cell, rgb } of cellColors) {
+          const sx = (cell.ax - vx) * scale - pad;
+          const sy = (cell.ay - vy) * scale - pad;
+          ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+          ctx.fillRect(sx, sy, cellSize + pad * 2, cellSize + pad * 2);
+        }
+
+        ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+        ctx.lineWidth = 1;
+        for (let y = 0; y < grid.rows - 1; y++) {
+          for (let x = 0; x < grid.cols - 1; x++) {
+            const cell = grid.cells.find(c => c.x === x && c.y === y);
+            if (!cell) continue;
+            const sx = (cell.ax - vx) * scale, sy = (cell.ay - vy) * scale;
+            ctx.strokeRect(sx - pad, sy - pad, cellSize + pad * 2, cellSize + pad * 2);
+          }
+        }
+
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `bold ${cellSize * 0.55}px monospace`;
+        for (const { cell, key, rgb } of cellColors) {
+          const sx = ((cell.ax + cell.dx) / 2 - vx) * scale;
+          const sy = ((cell.ay + cell.dy) / 2 - vy) * scale;
+          ctx.fillStyle = contrastColor(rgb);
+          ctx.fillText(symMap[key] || '?', sx, sy + 1);
+        }
+
+        card.querySelector(`#f-${name}`).classList.add('hidden');
+        const legend = card.querySelector(`#l-${name}`);
+        legend.classList.remove('hidden');
+        legend.innerHTML = '';
+        sortedColors.slice(0, 16).forEach(key => {
+          const [r, g, b] = key.split(',').map(Number);
+          const rgbStr = `rgb(${r},${g},${b})`;
+          const item = document.createElement('div');
+          item.className = 'leg-item';
+          item.innerHTML = `<span class="leg-sym" style="color:${contrastColor([r,g,b])};background:${rgbStr};border-radius:3px;padding:1px 4px">${symMap[key]}</span><span class="leg-dot" style="background:${rgbStr}"></span><span>${colorUses.get(key) || 0}</span>`;
+          legend.appendChild(item);
+        });
+      }
+    }
+
+    // ─── Color helpers ───
+    function rgbToHex(r, g, b) {
+      const vals = [r, g, b].map(x => {
+        const n = typeof x === 'string' ? parseInt(x, 10) : Number(x);
+        return Math.max(0, Math.min(255, n || 0)).toString(16).padStart(2, '0');
+      });
+      return '#' + vals.join('');
+    }
+    function hexToRgb(hex) {
+      hex = hex.replace('#', '');
+      if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+      return [
+        parseInt(hex.substring(0, 2), 16) || 0,
+        parseInt(hex.substring(2, 4), 16) || 0,
+        parseInt(hex.substring(4, 6), 16) || 0
+      ];
+    }
+
+    // Click on palette chip -> edit all cells of that color across all shapes
+    let editingChipKey = null;
+    function openColorPicker(chip, key) {
+      editingChipKey = key;
+      editingCellName = null; editingCellIndex = null;
+      const [r, g, b] = key.split(',').map(v => Number(v));
+      const rect = chip.getBoundingClientRect();
+      showPopover(rect.left + rect.width / 2, rect.top, [key], [r, g, b], (nr, ng, nb) => {
+        const oldKey = editingChipKey;
+        const newRgb = [nr, ng, nb];
+        const newKey = `${nr},${ng},${nb}`;
+        // Update all shapes that have this color
+        Object.entries(shapeStates).forEach(([sName, state]) => {
+          let changed = false;
+          state.cellColors.forEach(cc => {
+            if (cc.key === oldKey) {
+              cc.rgb = newRgb;
+              cc.key = newKey;
+              changed = true;
+            }
+          });
+          if (changed) {
+            renderShapeCard(document.getElementById('gallery'), sName, state.shape, state.grid, currentImage, state.quant, state.viewMode);
+          }
+        });
+      });
+    }
+
+    // ─── Cell click editing ───
+    let editingCellName = null;
+    let editingCellIndex = null;
+
+    // Custom color popover
+    const colorPopover = document.getElementById('colorPopover');
+    const popoverGrid = document.getElementById('popoverGrid');
+    const popoverColorInput = document.getElementById('popoverColorInput');
+    let popoverOnPick = null;
+
+    function hidePopover() {
+      colorPopover.classList.remove('visible');
+    }
+
+    function showPopover(x, y, colors, currentRgb, onPick) {
+      popoverOnPick = onPick;
+      popoverGrid.innerHTML = '';
+      colors.forEach(c => {
+        const [r, g, b] = c.split(',').map(Number);
+        const swatch = document.createElement('div');
+        swatch.className = 'color-popover-swatch';
+        swatch.style.background = `rgb(${r},${g},${b})`;
+        swatch.addEventListener('click', () => {
+          onPick(r, g, b);
+          hidePopover();
+        });
+        popoverGrid.appendChild(swatch);
+      });
+
+      popoverColorInput.value = rgbToHex(currentRgb[0], currentRgb[1], currentRgb[2]);
+
+      colorPopover.classList.add('visible');
+      const rect = colorPopover.getBoundingClientRect();
+      const px = Math.min(window.innerWidth - rect.width - 10, Math.max(10, x - rect.width / 2));
+      const py = Math.min(window.innerHeight - rect.height - 10, Math.max(10, y - rect.height - 10));
+      colorPopover.style.left = px + 'px';
+      colorPopover.style.top = py + 'px';
+    }
+
+    popoverColorInput.addEventListener('input', (e) => {
+      if (popoverOnPick) {
+        const [nr, ng, nb] = hexToRgb(e.target.value);
+        popoverOnPick(nr, ng, nb);
+      }
+    });
+
+    document.addEventListener('click', e => {
+      if (!e.target.closest('#colorPopover') && !e.target.closest('.card-canvas')) {
+        hidePopover();
+      }
+    });
+
+    // Cell click editing
+    document.getElementById('gallery').addEventListener('pointerdown', e => {
+      if (e.target.closest('.view-toggle button')) return;
+      if (e.target.closest('.card-footer .chip')) return;
+      if (e.target.closest('.pattern-legend')) return;
+      if (e.target.closest('.card-zoom')) return;
+
+      const canvas = e.target.closest('.card-canvas')?.querySelector('canvas');
+      if (!canvas) return;
+      const name = canvas.dataset.name;
+      if (!name || !shapeStates[name]) return;
+      const state = shapeStates[name];
+
+      const rect = canvas.getBoundingClientRect();
+      const scale = parseFloat(canvas.dataset.scale);
+      const cvx = parseFloat(canvas.dataset.vx || 0);
+      const cvy = parseFloat(canvas.dataset.vy || 0);
+      const zoom = (shapeStates[name]?.zoom || 100) / 100;
+      const svgX = (e.clientX - rect.left) / zoom * (canvas.width / rect.width) / scale + cvx;
+      const svgY = (e.clientY - rect.top) / zoom * (canvas.height / rect.height) / scale + cvy;
+
+      let bestIdx = -1, bestDist = Infinity;
+      state.cellColors.forEach(({ cell }, i) => {
+        const cx = (cell.ax + cell.dx) / 2;
+        const cy = (cell.ay + cell.dy) / 2;
+        const dist = Math.hypot(svgX - cx, svgY - cy);
+        if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+      });
+
+      if (bestIdx >= 0) {
+        editingCellName = name;
+        editingCellIndex = bestIdx;
+        const palette = [...new Set(state.cellColors.map(c => c.key))];
+        const currentRgb = state.cellColors[bestIdx].rgb.map(v => Number(v));
+        showPopover(e.clientX, e.clientY, palette, currentRgb, (r, g, b) => {
+          const rgb = [r, g, b];
+          const newKey = `${r},${g},${b}`;
+          state.cellColors[bestIdx].rgb = rgb;
+          state.cellColors[bestIdx].key = newKey;
+          renderShapeCard(document.getElementById('gallery'), name, state.shape, state.grid, currentImage, state.quant, state.viewMode);
+        });
+      }
+    });
+
+    // ─── App state ───
+    const shapes = {};
+    const originalShapes = {}; // keep originals for re-scaling
+    let currentImage = null;
+    let currentQuant = null;
+    let activeColorCount = 12;
+    const viewModes = {};
+    const shapeScales = {}; // name -> scale factor
+
+    async function loadShapes() {
+      const files = ['Flor.svg', 'Estrella.svg'];
+      for (const f of files) {
+        try {
+          const res = await fetch(f);
+          if (!res.ok) throw new Error('Fetch failed: ' + res.status);
+          const text = await res.text();
+          const shape = parseHoles(text);
+          const name = f.replace('.svg', '');
+          originalShapes[name] = shape;
+          shapeScales[name] = 1.0;
+          shapes[name] = { shape, grid: buildGrid(shape) };
+        } catch (e) { console.error('Error loading', f, e); }
+      }
+    }
+
+    function applyScale(name, factor) {
+      if (!originalShapes[name]) return;
+      shapeScales[name] = factor;
+      const scaled = scaleShape(originalShapes[name], factor);
+      shapes[name] = { shape: scaled, grid: buildGrid(scaled) };
+      // Reset state for this shape (preserve zoom & viewMode)
+      if (shapeStates[name]) {
+        const saved = { zoom: shapeStates[name].zoom, viewMode: shapeStates[name].viewMode };
+        shapeStates[name] = saved;
+      }
+    }
+
+    function applyScaleAll(factor) {
+      Object.keys(originalShapes).forEach(name => applyScale(name, factor));
+      if (currentImage) recalcAndRender();
+    }
+
+    function processFile(file) {
+      const img = new Image();
+      img.onload = () => {
+        sourceImg = img;
+        document.getElementById('cropSection').classList.add('visible');
+        document.getElementById('toolbar').classList.remove('hidden');
+        initCrop();
+        recalcAndRender();
+      };
+      img.onerror = (err) => console.error('Image load error', err);
+      img.src = URL.createObjectURL(file);
+    }
+
+    function recalcAndRender() {
+      if (!sourceImg) return;
+      let maxCols = 1, maxRows = 1;
+      for (const { grid } of Object.values(shapes)) {
+        if (grid.cols - 1 > maxCols) maxCols = grid.cols - 1;
+        if (grid.rows - 1 > maxRows) maxRows = grid.rows - 1;
+      }
+      currentImage = getCropImageData(maxCols, maxRows);
+      if (!currentImage) return;
+      currentQuant = makeQuant(currentImage, activeColorCount);
+      // Reset shape states on new image / recalc (preserve zoom & viewMode)
+      for (const name of Object.keys(shapeStates)) {
+        const saved = { zoom: shapeStates[name].zoom, viewMode: shapeStates[name].viewMode };
+        shapeStates[name] = saved;
+      }
+      renderAll();
+    }
+
+    function renderAll() {
+      if (!currentImage || !currentQuant) return;
+      const gallery = document.getElementById('gallery');
+      gallery.innerHTML = '';
+      for (const [name, { shape, grid }] of Object.entries(shapes)) {
+        renderShapeCard(gallery, name, shape, grid, currentImage, currentQuant, viewModes[name] || 'result');
+      }
+    }
+
+    // ─── Thread count ───
+    document.getElementById('threadOpts').addEventListener('click', (e) => {
+      if (!e.target.classList.contains('thread-btn')) return;
+      document.querySelectorAll('.thread-btn').forEach(b => b.classList.remove('active'));
+      e.target.classList.add('active');
+      activeColorCount = parseInt(e.target.dataset.n, 10);
+      recalcAndRender();
+    });
+
+    // ─── Scale slider ───
+    const scaleSlider = document.getElementById('scaleSlider');
+    const scaleVal = document.getElementById('scaleVal');
+    scaleSlider.addEventListener('input', (e) => {
+      const val = (parseInt(e.target.value, 10) / 10).toFixed(1);
+      scaleVal.textContent = val;
+    });
+    document.getElementById('applyScaleAll').addEventListener('click', () => {
+      const factor = parseInt(scaleSlider.value, 10) / 10;
+      applyScaleAll(factor);
+    });
+
+    // ─── View toggle ───
+    document.getElementById('gallery').addEventListener('click', e => {
+      const btn = e.target.closest('.view-toggle button');
+      if (!btn) return;
+      const name = btn.dataset.name;
+      viewModes[name] = btn.dataset.view;
+      if (shapeStates[name]) shapeStates[name].viewMode = btn.dataset.view;
+      renderAll();
+    });
+
+    // ─── Export actions ───
+    document.getElementById('gallery').addEventListener('click', e => {
+      const btn = e.target.closest('.action-btn');
+      if (!btn) return;
+      const name = btn.dataset.name;
+      const action = btn.dataset.action;
+      if (!name || !shapes[name]) return;
+
+      if (action === 'svg') {
+        const blob = new Blob([shapes[name].shape.svgText], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${name}_bordado.svg`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else if (action === 'png') {
+        const canvas = document.getElementById(`c-${name}`);
+        if (!canvas) return;
+        const a = document.createElement('a');
+        a.href = canvas.toDataURL('image/png');
+        a.download = `${name}_patron.png`;
+        a.click();
+      }
+    });
+
+    // ─── Upload events ───
+    const uploadBox = document.getElementById('uploadBox');
+    const fileInput = document.getElementById('fileInput');
+
+    uploadBox.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', e => {
+      if (e.target.files && e.target.files[0]) {
+        processFile(e.target.files[0]);
+        e.target.value = '';
+      }
+    });
+
+    uploadBox.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      uploadBox.classList.add('dragover');
+    });
+    uploadBox.addEventListener('dragleave', e => {
+      e.stopPropagation();
+      uploadBox.classList.remove('dragover');
+    });
+    uploadBox.addEventListener('drop', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      uploadBox.classList.remove('dragover');
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) processFile(files[0]);
+    });
+
+    // Prevent browser from opening dragged files anywhere else
+    ['dragover', 'drop'].forEach(evt => {
+      document.body.addEventListener(evt, e => {
+        if (!e.target.closest('#uploadBox')) e.preventDefault();
+      });
+    });
+
+    loadShapes();
+  </script>
+</body>
+</html>
