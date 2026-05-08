@@ -1134,7 +1134,16 @@
       canvas.dataset.vx = vx;
       canvas.dataset.vy = vy;
 
-      if (viewMode === 'result') {
+      if (editMode === 'holes') {
+        // Hole edit mode: draw grid with hover highlighting
+        renderHoleEditor(canvas, name, null, null);
+
+        card.querySelector(`#l-${name}`).classList.add('hidden');
+        const footer = card.querySelector(`#f-${name}`);
+        footer.classList.remove('hidden');
+        footer.innerHTML = '';
+        footer.innerHTML = '<span style="font-size:0.75rem;color:var(--muted)">Clic en punto para añadir/quitar agujero</span>';
+      } else if (viewMode === 'result') {
         const blob = new Blob([shape.svgText], { type: 'image/svg+xml' });
         const url = URL.createObjectURL(blob);
         const bgImg = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
@@ -1160,12 +1169,6 @@
           ctx.moveTo(ax, ay); ctx.lineTo(dx, dy);
           ctx.moveTo(bx, by); ctx.lineTo(cx, cy);
           ctx.stroke();
-        }
-
-        // Draw silhouette guide in hole edit mode or when debug is active
-        const editMode = shapeStates[name]?.editMode || 'colors';
-        if (editMode === 'holes' && shape.scaleFactor && shape.origViewBox) {
-          drawFilterSilhouette(ctx, shape.svgText, shape.scaleFactor, shape.origViewBox, scale, vx, vy);
         }
 
         card.querySelector(`#l-${name}`).classList.add('hidden');
@@ -1226,6 +1229,86 @@
           item.innerHTML = `<span class="leg-sym" style="color:${contrastColor([r,g,b])};background:${rgbStr};border-radius:3px;padding:1px 4px">${symMap[key]}</span><span class="leg-dot" style="background:${rgbStr}"></span><span>${colorUses.get(key) || 0}</span>`;
           legend.appendChild(item);
         });
+      }
+    }
+
+    // ─── Hole editor renderer ───
+    function renderHoleEditor(canvas, name, hoverX, hoverY) {
+      const state = shapeStates[name];
+      const shape = shapes[name].shape;
+      const grid = shapes[name].grid;
+      const ctx = canvas.getContext('2d');
+      const [vx, vy] = shape.viewBox;
+      const scale = parseFloat(canvas.dataset.scale);
+      const holeR = shape.holeRadius || 1.8;
+
+      // Clear
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw silhouette fill
+      const path2d = getSilhouettePath(shape.svgText);
+      if (path2d) {
+        ctx.save();
+        ctx.scale(scale, scale);
+        ctx.translate(-vx, -vy);
+        ctx.fillStyle = '#e8dfd3';
+        ctx.fill(path2d);
+        ctx.strokeStyle = '#3d3229';
+        ctx.lineWidth = 0.5;
+        ctx.stroke(path2d);
+        ctx.restore();
+      }
+
+      const c = document.createElement('canvas');
+      c.width = 1; c.height = 1;
+      const testCtx = c.getContext('2d');
+
+      // Build hole lookup with tolerance
+      const holeSet = new Set();
+      const tol = 0.5;
+      shape.holes.forEach(h => {
+        grid.xs.forEach(x => {
+          grid.ys.forEach(y => {
+            if (Math.abs(h.x - x) < tol && Math.abs(h.y - y) < tol) {
+              holeSet.add(`${x.toFixed(2)},${y.toFixed(2)}`);
+            }
+          });
+        });
+      });
+
+      // Draw all grid points inside silhouette
+      grid.xs.forEach(x => {
+        grid.ys.forEach(y => {
+          const px = (x - vx) * scale;
+          const py = (y - vy) * scale;
+          const inside = path2d ? testCtx.isPointInPath(path2d, x, y) : true;
+          if (!inside) return;
+
+          const key = `${x.toFixed(2)},${y.toFixed(2)}`;
+          const hasHole = holeSet.has(key);
+          const isHover = hoverX !== null && Math.abs(hoverX - x) < 1 && Math.abs(hoverY - y) < 1;
+
+          ctx.beginPath();
+          ctx.arc(px, py, hasHole ? holeR * scale * 0.8 : holeR * scale * 0.35, 0, Math.PI * 2);
+          if (hasHole) {
+            ctx.fillStyle = isHover ? 'rgba(255, 80, 80, 0.9)' : 'rgba(220, 40, 40, 0.75)';
+            ctx.fill();
+            ctx.strokeStyle = isHover ? '#fff' : 'rgba(180, 0, 0, 0.9)';
+            ctx.lineWidth = isHover ? 2.5 : 1.5;
+            ctx.stroke();
+          } else {
+            ctx.fillStyle = isHover ? 'rgba(120, 120, 120, 0.6)' : 'rgba(160, 160, 160, 0.35)';
+            ctx.fill();
+            ctx.strokeStyle = isHover ? '#444' : 'rgba(120, 120, 120, 0.5)';
+            ctx.lineWidth = isHover ? 1.5 : 0.5;
+            ctx.stroke();
+          }
+        });
+      });
+
+      // Draw offset silhouette boundary (green)
+      if (shape.scaleFactor && shape.origViewBox) {
+        drawFilterSilhouette(ctx, shape.svgText, shape.scaleFactor, shape.origViewBox, scale, vx, vy);
       }
     }
 
@@ -1327,8 +1410,8 @@
       }
     });
 
-    // Cell click editing
-    document.getElementById('gallery').addEventListener('pointerdown', e => {
+    // ─── Canvas click editing ───
+    document.getElementById('gallery').addEventListener('click', e => {
       if (e.target.closest('.view-toggle button')) return;
       if (e.target.closest('.edit-mode-toggle button')) return;
       if (e.target.closest('.card-footer .chip')) return;
@@ -1350,46 +1433,44 @@
       const svgY = (e.clientY - rect.top) * (canvas.height / rect.height) / scale + cvy;
 
       if (editMode === 'holes') {
-        // Hole edit mode: find nearest hole or empty grid position
         const shape = shapes[name].shape;
         const grid = shapes[name].grid;
         const dx = grid.xs[1] - grid.xs[0];
         const dy = grid.ys[1] - grid.ys[0];
-        const tol = Math.min(dx, dy) * 0.8;
+        const tol = Math.min(dx, dy) * 0.6;
 
-        // Find nearest existing hole
-        let nearestHoleIdx = -1, nearestDist = Infinity;
-        shape.holes.forEach((h, i) => {
-          const d = Math.hypot(h.x - svgX, h.y - svgY);
-          if (d < nearestDist) { nearestDist = d; nearestHoleIdx = i; }
-        });
+        // Find nearest grid point
+        const gx = grid.xs.reduce((best, x) => Math.abs(x - svgX) < Math.abs(best - svgX) ? x : best, grid.xs[0]);
+        const gy = grid.ys.reduce((best, y) => Math.abs(y - svgY) < Math.abs(best - svgY) ? y : best, grid.ys[0]);
 
-        if (nearestHoleIdx >= 0 && nearestDist < tol) {
-          // Remove hole
+        // Check if this grid point currently has a hole
+        const holeKey = `${gx.toFixed(3)},${gy.toFixed(3)}`;
+        const hasHole = shape.holes.some(h => Math.abs(h.x - gx) < tol && Math.abs(h.y - gy) < tol);
+
+        if (hasHole) {
+          // Toggle remove
           if (!state.removedHoles) state.removedHoles = new Set();
-          const holeKey = `${shape.holes[nearestHoleIdx].x.toFixed(3)},${shape.holes[nearestHoleIdx].y.toFixed(3)}`;
-          if (state.removedHoles.has(holeKey)) {
-            state.removedHoles.delete(holeKey);
-          } else {
-            state.removedHoles.add(holeKey);
-          }
+          if (state.removedHoles.has(holeKey)) state.removedHoles.delete(holeKey);
+          else state.removedHoles.add(holeKey);
+          // If it was in added, remove from added
+          if (state.addedHoles) state.addedHoles = state.addedHoles.filter(h => !(Math.abs(h.x - gx) < 0.1 && Math.abs(h.y - gy) < 0.1));
         } else {
-          // Find nearest grid intersection
-          const gx = grid.xs.reduce((best, x) => Math.abs(x - svgX) < Math.abs(best - svgX) ? x : best, grid.xs[0]);
-          const gy = grid.ys.reduce((best, y) => Math.abs(y - svgY) < Math.abs(best - svgY) ? y : best, grid.ys[0]);
+          // Toggle add
           if (!state.addedHoles) state.addedHoles = [];
           const existing = state.addedHoles.find(h => Math.abs(h.x - gx) < 0.1 && Math.abs(h.y - gy) < 0.1);
           if (existing) {
             state.addedHoles = state.addedHoles.filter(h => h !== existing);
           } else {
             state.addedHoles.push({ x: gx, y: gy });
+            // Remove from removed if present
+            if (state.removedHoles) state.removedHoles.delete(holeKey);
           }
         }
 
-        // Rebuild shape with modifications
+        // Rebuild and redraw
         const modifiedShape = applyHoleMods(shape, state);
         shapes[name] = { shape: modifiedShape, grid: buildGrid(modifiedShape) };
-        renderShapeCard(document.getElementById('gallery'), name, modifiedShape, buildGrid(modifiedShape), currentImage, state.quant, state.viewMode);
+        renderHoleEditor(canvas, name, gx, gy);
         return;
       }
 
@@ -1415,6 +1496,24 @@
           renderShapeCard(document.getElementById('gallery'), name, state.shape, state.grid, currentImage, state.quant, state.viewMode);
         });
       }
+    });
+
+    // ─── Hole editor hover ───
+    document.getElementById('gallery').addEventListener('mousemove', e => {
+      const canvas = e.target.closest('.card-canvas')?.querySelector('canvas');
+      if (!canvas) return;
+      const name = canvas.dataset.name;
+      if (!name || !shapeStates[name]) return;
+      if ((shapeStates[name].editMode || 'colors') !== 'holes') return;
+
+      const rect = canvas.getBoundingClientRect();
+      const scale = parseFloat(canvas.dataset.scale);
+      const cvx = parseFloat(canvas.dataset.vx || 0);
+      const cvy = parseFloat(canvas.dataset.vy || 0);
+      const svgX = (e.clientX - rect.left) * (canvas.width / rect.width) / scale + cvx;
+      const svgY = (e.clientY - rect.top) * (canvas.height / rect.height) / scale + cvy;
+
+      renderHoleEditor(canvas, name, svgX, svgY);
     });
 
     // ─── App state ───
