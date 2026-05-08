@@ -210,6 +210,26 @@
     .card-zoom input[type=range] {
       width: 60px;
     }
+    .edit-mode-toggle {
+      display: flex;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      font-size: 0.7rem;
+    }
+    .edit-mode-toggle button {
+      border: none;
+      background: #fff;
+      color: var(--muted);
+      padding: 4px 8px;
+      cursor: pointer;
+      transition: all .2s;
+      white-space: nowrap;
+    }
+    .edit-mode-toggle button.active {
+      background: var(--accent);
+      color: #fff;
+    }
     .edit-hint {
       position: absolute;
       top: 6px;
@@ -507,6 +527,55 @@
         }
       }
       return { xs, ys, occupied, cells, rows: ys.length, cols: xs.length };
+    }
+
+    // Apply manual hole additions/removals to a shape
+    function applyHoleMods(shape, state) {
+      if (!state) return shape;
+      let holes = [...shape.holes];
+
+      // Remove holes
+      if (state.removedHoles && state.removedHoles.size > 0) {
+        holes = holes.filter(h => {
+          const key = `${h.x.toFixed(3)},${h.y.toFixed(3)}`;
+          return !state.removedHoles.has(key);
+        });
+      }
+
+      // Add holes
+      if (state.addedHoles && state.addedHoles.length > 0) {
+        holes = holes.concat(state.addedHoles);
+      }
+
+      if (holes.length === shape.holes.length) return shape;
+
+      // Rebuild SVG text with modified holes
+      const doc = new DOMParser().parseFromString(shape.svgText, 'image/svg+xml');
+      const svg = doc.querySelector('svg');
+      const ns = 'http://www.w3.org/2000/svg';
+
+      // Remove existing red hole paths
+      svg.querySelectorAll('path[stroke="#FF0000"]').forEach(p => p.remove());
+
+      // Add back the current holes
+      const r = shape.holeRadius || 1.8;
+      holes.forEach(h => {
+        const path = document.createElementNS(ns, 'path');
+        const d = `M${h.x-r},${h.y} C${h.x-r},${h.y-r*0.55} ${h.x-r*0.55},${h.y-r} ${h.x},${h.y-r} C${h.x+r*0.55},${h.y-r} ${h.x+r},${h.y-r*0.55} ${h.x+r},${h.y} C${h.x+r},${h.y+r*0.55} ${h.x+r*0.55},${h.y+r} ${h.x},${h.y+r} C${h.x-r*0.55},${h.y+r} ${h.x-r},${h.y+r*0.55} ${h.x-r},${h.y} z`;
+        path.setAttribute('d', d);
+        path.setAttribute('stroke', '#FF0000');
+        path.setAttribute('stroke-width', '0.24');
+        path.setAttribute('fill-opacity', '0');
+        svg.appendChild(path);
+      });
+
+      const newText = new XMLSerializer().serializeToString(doc);
+      const result = parseHoles(newText);
+      result.scaleFactor = shape.scaleFactor;
+      result.origViewBox = shape.origViewBox;
+      if (state.removedHoles) result.removedHoles = state.removedHoles;
+      if (state.addedHoles) result.addedHoles = state.addedHoles;
+      return result;
     }
 
     // ─── Shape scaling (offset exterior) ───
@@ -935,6 +1004,7 @@
       card.className = 'card';
       card.id = `card-${name}`;
       const scaleFactor = shapeScales[name] || 1.0;
+      const editMode = shapeStates[name]?.editMode || 'colors';
       card.innerHTML = `
         <div class="card-header">
           <div class="header-row">
@@ -946,6 +1016,10 @@
           </div>
           <div class="header-row secondary">
             <span class="meta">${grid.cells.length} puntadas · ${grid.cols - 1}×${grid.rows - 1} · ${scaleFactor.toFixed(1)}×</span>
+            <div class="edit-mode-toggle">
+              <button class="${editMode === 'colors' ? 'active' : ''}" data-edit="colors" data-name="${name}">Editar colores</button>
+              <button class="${editMode === 'holes' ? 'active' : ''}" data-edit="holes" data-name="${name}">Editar agujeros</button>
+            </div>
             <div class="card-zoom">
               <input type="range" class="zoom-slider" data-name="${name}" min="50" max="300" value="100" title="Zoom visual">
               <span>100%</span>
@@ -954,7 +1028,7 @@
         </div>
         <div class="card-canvas">
           <canvas id="c-${name}"></canvas>
-          <span class="edit-hint">Clic en punto para editar</span>
+          <span class="edit-hint">${editMode === 'holes' ? 'Clic para añadir/quitar agujero' : 'Clic en punto para editar'}</span>
         </div>
         <div class="card-footer" id="f-${name}"></div>
         <div class="pattern-legend hidden" id="l-${name}"></div>
@@ -1088,8 +1162,9 @@
           ctx.stroke();
         }
 
-        // Debug: draw the silhouette used for filtering
-        if (shape.scaleFactor && shape.origViewBox) {
+        // Draw silhouette guide in hole edit mode or when debug is active
+        const editMode = shapeStates[name]?.editMode || 'colors';
+        if (editMode === 'holes' && shape.scaleFactor && shape.origViewBox) {
           drawFilterSilhouette(ctx, shape.svgText, shape.scaleFactor, shape.origViewBox, scale, vx, vy);
         }
 
@@ -1255,6 +1330,7 @@
     // Cell click editing
     document.getElementById('gallery').addEventListener('pointerdown', e => {
       if (e.target.closest('.view-toggle button')) return;
+      if (e.target.closest('.edit-mode-toggle button')) return;
       if (e.target.closest('.card-footer .chip')) return;
       if (e.target.closest('.pattern-legend')) return;
       if (e.target.closest('.card-zoom')) return;
@@ -1264,15 +1340,60 @@
       const name = canvas.dataset.name;
       if (!name || !shapeStates[name]) return;
       const state = shapeStates[name];
+      const editMode = state.editMode || 'colors';
 
       const rect = canvas.getBoundingClientRect();
       const scale = parseFloat(canvas.dataset.scale);
       const cvx = parseFloat(canvas.dataset.vx || 0);
       const cvy = parseFloat(canvas.dataset.vy || 0);
-      const zoom = (shapeStates[name]?.zoom || 100) / 100;
       const svgX = (e.clientX - rect.left) * (canvas.width / rect.width) / scale + cvx;
       const svgY = (e.clientY - rect.top) * (canvas.height / rect.height) / scale + cvy;
 
+      if (editMode === 'holes') {
+        // Hole edit mode: find nearest hole or empty grid position
+        const shape = shapes[name].shape;
+        const grid = shapes[name].grid;
+        const dx = grid.xs[1] - grid.xs[0];
+        const dy = grid.ys[1] - grid.ys[0];
+        const tol = Math.min(dx, dy) * 0.8;
+
+        // Find nearest existing hole
+        let nearestHoleIdx = -1, nearestDist = Infinity;
+        shape.holes.forEach((h, i) => {
+          const d = Math.hypot(h.x - svgX, h.y - svgY);
+          if (d < nearestDist) { nearestDist = d; nearestHoleIdx = i; }
+        });
+
+        if (nearestHoleIdx >= 0 && nearestDist < tol) {
+          // Remove hole
+          if (!state.removedHoles) state.removedHoles = new Set();
+          const holeKey = `${shape.holes[nearestHoleIdx].x.toFixed(3)},${shape.holes[nearestHoleIdx].y.toFixed(3)}`;
+          if (state.removedHoles.has(holeKey)) {
+            state.removedHoles.delete(holeKey);
+          } else {
+            state.removedHoles.add(holeKey);
+          }
+        } else {
+          // Find nearest grid intersection
+          const gx = grid.xs.reduce((best, x) => Math.abs(x - svgX) < Math.abs(best - svgX) ? x : best, grid.xs[0]);
+          const gy = grid.ys.reduce((best, y) => Math.abs(y - svgY) < Math.abs(best - svgY) ? y : best, grid.ys[0]);
+          if (!state.addedHoles) state.addedHoles = [];
+          const existing = state.addedHoles.find(h => Math.abs(h.x - gx) < 0.1 && Math.abs(h.y - gy) < 0.1);
+          if (existing) {
+            state.addedHoles = state.addedHoles.filter(h => h !== existing);
+          } else {
+            state.addedHoles.push({ x: gx, y: gy });
+          }
+        }
+
+        // Rebuild shape with modifications
+        const modifiedShape = applyHoleMods(shape, state);
+        shapes[name] = { shape: modifiedShape, grid: buildGrid(modifiedShape) };
+        renderShapeCard(document.getElementById('gallery'), name, modifiedShape, buildGrid(modifiedShape), currentImage, state.quant, state.viewMode);
+        return;
+      }
+
+      // Color edit mode (default)
       let bestIdx = -1, bestDist = Infinity;
       state.cellColors.forEach(({ cell }, i) => {
         const cx = (cell.ax + cell.dx) / 2;
@@ -1335,9 +1456,14 @@
       scaled.scaleFactor = factor;
       scaled.origViewBox = originalShapes[name].viewBox;
       shapes[name] = { shape: scaled, grid: buildGrid(scaled) };
-      // Reset state for this shape (preserve viewMode only, zoom will be auto-fitted on render)
+      // Reset state for this shape (preserve viewMode, editMode, and hole mods)
       if (shapeStates[name]) {
-        const saved = { viewMode: shapeStates[name].viewMode };
+        const saved = {
+          viewMode: shapeStates[name].viewMode,
+          editMode: shapeStates[name].editMode,
+          addedHoles: shapeStates[name].addedHoles,
+          removedHoles: shapeStates[name].removedHoles
+        };
         shapeStates[name] = saved;
       }
     }
@@ -1411,11 +1537,23 @@
     // ─── View toggle ───
     document.getElementById('gallery').addEventListener('click', e => {
       const btn = e.target.closest('.view-toggle button');
-      if (!btn) return;
-      const name = btn.dataset.name;
-      viewModes[name] = btn.dataset.view;
-      if (shapeStates[name]) shapeStates[name].viewMode = btn.dataset.view;
-      renderAll();
+      if (btn) {
+        const name = btn.dataset.name;
+        viewModes[name] = btn.dataset.view;
+        if (shapeStates[name]) shapeStates[name].viewMode = btn.dataset.view;
+        renderAll();
+        return;
+      }
+
+      // Edit mode toggle
+      const editBtn = e.target.closest('.edit-mode-toggle button');
+      if (editBtn) {
+        const name = editBtn.dataset.name;
+        const mode = editBtn.dataset.edit;
+        if (shapeStates[name]) shapeStates[name].editMode = mode;
+        else shapeStates[name] = { editMode: mode };
+        renderShapeCard(document.getElementById('gallery'), name, shapes[name].shape, shapes[name].grid, currentImage, currentQuant, shapeStates[name]?.viewMode || viewModes[name] || 'result');
+      }
     });
 
     // ─── Export actions ───
