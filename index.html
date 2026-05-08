@@ -1240,7 +1240,12 @@
     const shapeScales = {}; // name -> scale factor
 
     async function loadShapes() {
-      const files = ['Flor.svg', 'Estrella.svg'];
+      const files = [
+        'Flor.svg', 'Estrella.svg', 'Corazon.svg', 'Gota.svg',
+        'Ovalo.svg', 'OvaloFlor.svg', 'Circulo1.svg', 'Circulo2.svg',
+        'Cuadrado.svg', 'Rectangulo.svg', 'Rombo.svg',
+        'Diamante1.svg', 'Diamante2.svg'
+      ];
       for (const f of files) {
         try {
           const res = await fetch(f);
