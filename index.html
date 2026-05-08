@@ -483,20 +483,29 @@
     }
 
     // ─── Shape scaling (offset exterior) ───
-    // Pre-parse silhouette path once per shape to avoid re-parsing on every call
+    // Pre-parse silhouette path once per shape.  We keep only the LARGEST
+    // black path – that is the outer contour.  Inner details (central hole,
+    // decorations, etc.) are ignored so isPointInPath works correctly.
     const silhouettePaths = new Map();
     function getSilhouettePath(svgText) {
       if (silhouettePaths.has(svgText)) return silhouettePaths.get(svgText);
       const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
       const paths = doc.querySelectorAll('path');
-      let silhouetteD = '';
+      let bestD = '';
+      let bestArea = 0;
       paths.forEach(p => {
         if (p.getAttribute('stroke') === '#FF0000') return;
         const d = p.getAttribute('d');
-        if (d) silhouetteD += d + ' ';
+        if (!d) return;
+        // Approximate area by bounding box of the path
+        const nums = [...d.matchAll(/[\d.]+/g)].map(m => parseFloat(m[0]));
+        const xs = nums.filter((_, i) => i % 2 === 0);
+        const ys = nums.filter((_, i) => i % 2 === 1);
+        const area = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
+        if (area > bestArea) { bestArea = area; bestD = d; }
       });
-      if (!silhouetteD) return null;
-      const path2d = new Path2D(silhouetteD);
+      if (!bestD) return null;
+      const path2d = new Path2D(bestD);
       silhouettePaths.set(svgText, path2d);
       return path2d;
     }
@@ -589,17 +598,22 @@
         }
       }
 
-      // Filter in original space: this automatically respects the original 3mm offset
-      // because the original silhouette already has that margin baked in.
+      // Filter in original space against the outer silhouette.
+      // The offset (~3 mm) is approx 1.5 × the grid step; we verify that the
+      // whole offset circle fits inside the silhouette.
+      const offsetR = Math.max(dx, dy) * 1.5;
+      const path2d = getSilhouettePath(shape.svgText);
       const insideHoles = allHoles.filter(h => {
-        const path2d = getSilhouettePath(shape.svgText);
         if (!path2d) return false;
         const c = document.createElement('canvas');
         c.width = 1; c.height = 1;
         const ctx = c.getContext('2d');
-        // Check center + cardinal points for a safety margin equivalent to the hole radius
-        const r = shape.holeRadius;
-        const pts = [[h.origX, h.origY], [h.origX, h.origY - r], [h.origX, h.origY + r], [h.origX + r, h.origY], [h.origX - r, h.origY]];
+        // Check center + 8 radial points at offset distance
+        const pts = [[h.origX, h.origY]];
+        for (let a = 0; a < 8; a++) {
+          const ang = (a * Math.PI) / 4;
+          pts.push([h.origX + offsetR * Math.cos(ang), h.origY + offsetR * Math.sin(ang)]);
+        }
         return pts.every(([px, py]) => ctx.isPointInPath(path2d, px, py));
       });
 
