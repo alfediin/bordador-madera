@@ -429,10 +429,12 @@
       const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
       const svg = doc.querySelector('svg');
       const vb = svg.getAttribute('viewBox').split(/\s+/).map(Number);
-      const paths = svg.querySelectorAll('path[stroke="#FF0000"]');
+
+      // Parse red holes
+      const redPaths = svg.querySelectorAll('path[stroke="#FF0000"]');
       const holes = [];
       let totalR = 0;
-      paths.forEach(p => {
+      redPaths.forEach(p => {
         const d = p.getAttribute('d');
         const nums = [...d.matchAll(/[\d.]+/g)].map(m => parseFloat(m[0]));
         const xs = nums.filter((_, i) => i % 2 === 0);
@@ -445,8 +447,33 @@
         totalR += r;
         holes.push({ x, y, r });
       });
-      const holeRadius = paths.length > 0 ? totalR / paths.length : 1.8;
-      return { holes, viewBox: vb, svgText, doc, svg, holeRadius };
+      const holeRadius = redPaths.length > 0 ? totalR / redPaths.length : 1.8;
+
+      // Detect hanger hole (second largest black path)
+      const blackPaths = [];
+      svg.querySelectorAll('path').forEach(p => {
+        if (p.getAttribute('stroke') !== '#000000') return;
+        const d = p.getAttribute('d');
+        if (!d) return;
+        const nums = [...d.matchAll(/[\d.]+/g)].map(m => parseFloat(m[0]));
+        const xs = nums.filter((_, i) => i % 2 === 0);
+        const ys = nums.filter((_, i) => i % 2 === 1);
+        const area = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
+        const cx_ = (Math.min(...xs) + Math.max(...xs)) / 2;
+        const cy_ = (Math.min(...ys) + Math.max(...ys)) / 2;
+        const rx = (Math.max(...xs) - Math.min(...xs)) / 2;
+        const ry = (Math.max(...ys) - Math.min(...ys)) / 2;
+        blackPaths.push({ d, area, cx: cx_, cy: cy_, rx, ry });
+      });
+      blackPaths.sort((a, b) => b.area - a.area);
+      const silhouettePath = blackPaths[0] || null;
+      const hangerPath = blackPaths[1] || null;
+
+      return {
+        holes, viewBox: vb, svgText, doc, svg, holeRadius,
+        silhouette: silhouettePath,
+        hanger: hangerPath
+      };
     }
 
     function buildGrid(shape) {
@@ -483,9 +510,7 @@
     }
 
     // ─── Shape scaling (offset exterior) ───
-    // Pre-parse silhouette path once per shape.  We keep only the LARGEST
-    // black path – that is the outer contour.  Inner details (central hole,
-    // decorations, etc.) are ignored so isPointInPath works correctly.
+    // Pre-parse silhouette path once per shape.
     const silhouettePaths = new Map();
     function getSilhouettePath(svgText) {
       if (silhouettePaths.has(svgText)) return silhouettePaths.get(svgText);
@@ -497,7 +522,6 @@
         if (p.getAttribute('stroke') === '#FF0000') return;
         const d = p.getAttribute('d');
         if (!d) return;
-        // Approximate area by bounding box of the path
         const nums = [...d.matchAll(/[\d.]+/g)].map(m => parseFloat(m[0]));
         const xs = nums.filter((_, i) => i % 2 === 0);
         const ys = nums.filter((_, i) => i % 2 === 1);
@@ -603,8 +627,22 @@
       // whole offset circle fits inside the silhouette.
       const offsetR = Math.max(dx, dy) * 1.5;
       const path2d = getSilhouettePath(shape.svgText);
+
+      // Hanger exclusion radius (hanger size + hole radius + safety margin)
+      const hanger = shape.hanger;
+      const hangerExclR = hanger
+        ? Math.max(hanger.rx, hanger.ry) + shape.holeRadius * 2.5
+        : 0;
+
       const insideHoles = allHoles.filter(h => {
         if (!path2d) return false;
+
+        // Exclude holes too close to the hanger hole
+        if (hanger) {
+          const dist = Math.hypot(h.origX - hanger.cx, h.origY - hanger.cy);
+          if (dist < hangerExclR) return false;
+        }
+
         const c = document.createElement('canvas');
         c.width = 1; c.height = 1;
         const ctx = c.getContext('2d');
@@ -658,16 +696,33 @@
       }
       g.setAttribute('transform', `translate(${tx}, ${ty}) scale(${factor})`);
 
-      // Move all non-red paths that are still direct children of <svg> into the group
+      // Identify hanger path so we can keep it separate from the scaled group
+      const hanger = shape && shape.hanger;
+      let hangerEl = null;
+
+      // Move all non-red, non-hanger paths into the scaled group
       const directPaths = svg.querySelectorAll(':scope > path');
       directPaths.forEach(p => {
         if (p.getAttribute('stroke') === '#FF0000') return;
+        // Skip the hanger path (match by center coordinates in original space)
+        if (hanger) {
+          const d = p.getAttribute('d');
+          if (d) {
+            const nums = [...d.matchAll(/[\d.]+/g)].map(m => parseFloat(m[0]));
+            const xs = nums.filter((_, i) => i % 2 === 0);
+            const ys = nums.filter((_, i) => i % 2 === 1);
+            const pcx = (Math.min(...xs) + Math.max(...xs)) / 2;
+            const pcy = (Math.min(...ys) + Math.max(...ys)) / 2;
+            if (Math.abs(pcx - hanger.cx) < 1 && Math.abs(pcy - hanger.cy) < 1) {
+              hangerEl = p;
+              return; // don't move to scaled group
+            }
+          }
+        }
         g.appendChild(p);
       });
 
       // Add new hole paths as DIRECT children with EXPANDED coordinates.
-      // This ensures parseHoles() reads them back in the same coordinate
-      // system as the expanded viewBox.
       // Use the original hole radius so new holes match the original size.
       const holeR = (shape && shape.holeRadius) ? shape.holeRadius : 1.8;
       holes.forEach(h => {
@@ -680,6 +735,17 @@
         path.setAttribute('fill-opacity', '0');
         svg.appendChild(path);
       });
+
+      // Re-position hanger hole: scaled position but original size
+      if (hanger && hangerEl) {
+        const newCx = origVB[0] + origVB[2] / 2 + (hanger.cx - (origVB[0] + origVB[2] / 2)) * factor;
+        const newCy = origVB[1] + origVB[3] / 2 + (hanger.cy - (origVB[1] + origVB[3] / 2)) * factor;
+        const r = Math.max(hanger.rx, hanger.ry);
+        const d = `M${newCx-r},${newCy} C${newCx-r},${newCy-r*0.55} ${newCx-r*0.55},${newCy-r} ${newCx},${newCy-r} C${newCx+r*0.55},${newCy-r} ${newCx+r},${newCy-r*0.55} ${newCx+r},${newCy} C${newCx+r},${newCy+r*0.55} ${newCx+r*0.55},${newCy+r} ${newCx},${newCy+r} C${newCx-r*0.55},${newCy+r} ${newCx-r},${newCy+r*0.55} ${newCx-r},${newCy} z`;
+        hangerEl.setAttribute('d', d);
+        hangerEl.removeAttribute('transform');
+        svg.appendChild(hangerEl);
+      }
 
       svg.setAttribute('viewBox', viewBox.join(' '));
       svg.setAttribute('width', viewBox[2] + 'pt');
